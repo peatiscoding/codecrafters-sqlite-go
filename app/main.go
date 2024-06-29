@@ -1,67 +1,49 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	// Available if you need it!
 	// "github.com/xwb1989/sqlparser"
 )
-
-// func parseTableBTreePage(content []byte)
 
 // Usage: your_sqlite3.sh sample.db .dbinfo
 func main() {
 	databaseFilePath := os.Args[1]
 	command := os.Args[2]
 
+	db, err := NewDb(databaseFilePath)
+	if err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
+
 	switch command {
+	case ".tables":
+		tableNames := make([]string, 0)
+		for _, table := range db.masterTables {
+			rowType := string(table.fields[0].data)
+			if "table" != rowType {
+				continue
+			}
+			tblName := string(table.fields[2].data)
+			tableNames = append(tableNames, tblName)
+		}
+		fmt.Printf("%s", strings.Join(tableNames, " "))
 	case ".dbinfo":
-		databaseFile, err := os.Open(databaseFilePath)
-		if err != nil {
-			log.Fatal(err)
-		}
+		fmt.Printf("database page size: %d\n", db.pageSize)
 
-		header := make([]byte, 100)
-
-		_, err = databaseFile.Read(header) // read equal to its size
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		var pageSize uint16
-		if err := binary.Read(bytes.NewReader(header[16:18]), binary.BigEndian, &pageSize); err != nil {
-			fmt.Println("Failed to read integer:", err)
-			return
-		}
-		// You can use print statements as follows for debugging, they'll be visible when running tests.
-
-		// Parse first page for items
-		pageContent := make([]byte, pageSize-100) // first page offset by 100
-		_, err = databaseFile.ReadAt(pageContent, 100)
-		if err != nil {
-			log.Fatal(err)
-		}
-		btreePage, err := parseBTreePage(pageContent, true)
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("database page size: %d\n", pageSize)
-
-		tablesCount := 0
-		for row := range (*btreePage).cellOffsets {
-			cell, err := btreePage.readCell(row)
-			if err != nil {
-				log.Fatal(err)
-			}
-			rType := string(cell.fields[0].data)
-			if "table" == rType {
-				tablesCount += 1
+		tableCount := 0
+		for _, table := range db.masterTables {
+			rowType := string(table.fields[0].data)
+			if "table" == rowType {
+				tableCount += 1
+				continue
 			}
 		}
-		fmt.Printf("number of tables: %d\n", tablesCount)
+		fmt.Printf("number of tables: %d\n", tableCount)
 
 	default:
 		fmt.Println("Unknown command", command)
