@@ -40,7 +40,7 @@ func main() {
 		fmt.Println("Logs from your program will appear here!")
 
 		// Parse first page for items
-		pageContent := make([]byte, pageSize)
+		pageContent := make([]byte, pageSize-100) // first page offset by 100
 		_, err = databaseFile.ReadAt(pageContent, 100)
 		if err != nil {
 			log.Fatal(err)

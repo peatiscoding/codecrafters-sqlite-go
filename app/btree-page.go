@@ -24,7 +24,8 @@ type TableBTreePageHeader struct {
 }
 
 type TableBTreePage struct {
-	header TableBTreePageHeader
+	header      TableBTreePageHeader
+	cellOffsets []int16
 }
 
 func parseBTreePage(pageContent []byte) (*TableBTreePage, error) {
@@ -44,15 +45,23 @@ func parseBTreePage(pageContent []byte) (*TableBTreePage, error) {
 		numberOfFragmentedFreeBytes: numberOfFragmentedFreeBytes,
 		rightMostPointer:            0, // optional
 	}
+	cellPointsArrayOffset := int16(8)
 
 	if InteriorIndex == pageType {
 		header.rightMostPointer = 0
 		if err := binary.Read(bytes.NewReader(pageContent[8:12]), binary.BigEndian, &(header.rightMostPointer)); err != nil {
 			return nil, err
 		}
+		cellPointsArrayOffset = 12
+	}
+
+	cellOffsets := make([]int16, header.numberOfCells)
+	if err := binary.Read(bytes.NewReader(pageContent[cellPointsArrayOffset:cellPointsArrayOffset+2*header.numberOfCells]), binary.BigEndian, &cellOffsets); err != nil {
+		return nil, err
 	}
 
 	return &TableBTreePage{
-		header: *header,
+		header:      *header,
+		cellOffsets: cellOffsets,
 	}, nil
 }
