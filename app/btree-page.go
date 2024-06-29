@@ -3,16 +3,31 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 )
 
 type BTreePageType = int8
+type BTreeLeafPageCellSerialType = int8
 
 const (
 	InteriorIndex BTreePageType = 0x02
 	InteriorTable               = 0x05
 	LeafIndex                   = 0x0a
 	LeafTable                   = 0x0d
+)
+
+const (
+	Null   BTreeLeafPageCellSerialType = 0
+	I8                                 = 1
+	I16                                = 2
+	I24                                = 3
+	I32                                = 4
+	I48                                = 5
+	I64                                = 6
+	F64                                = 7
+	BLOB                               = 12
+	STRING                             = 13
 )
 
 type TableBTreePageHeader struct {
@@ -30,10 +45,16 @@ type TableBTreePage struct {
 	pageContent []byte // original pageContent
 }
 
+type TableBTreeLeafPageCellPayload struct {
+	serialType BTreeLeafPageCellSerialType
+	length     uint64
+	data       []byte
+}
+
 type TableBTreeLeafPageCell struct {
 	payloadSize  uint64
 	rowid        uint64
-	content      []byte
+	fields       []TableBTreeLeafPageCellPayload
 	overflowPage int32
 }
 
@@ -83,6 +104,7 @@ func parseBTreePage(pageContent []byte, isFirstPage bool) (*TableBTreePage, erro
 	}, nil
 }
 
+// this is basically SELECT * FROM TABLE/
 func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error) {
 	contentOffset := p.cellOffsets[cellIndex]
 	reader := bytes.NewReader(p.pageContent[contentOffset:])
@@ -94,16 +116,82 @@ func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error
 	if err != nil {
 		return nil, err
 	}
-	content := make([]byte, payloadSize)
-	if err := binary.Read(reader, binary.BigEndian, &content); err != nil {
+	content, err := parseCellContentRecordHeadAndContent(reader)
+	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Reading on %d found %d %d %s\n", contentOffset, payloadSize, rowid, string(content))
 
 	return &TableBTreeLeafPageCell{
 		payloadSize:  payloadSize,
 		rowid:        rowid,
-		content:      content,
+		fields:       content,
 		overflowPage: 0,
 	}, nil
+}
+
+func mapSerialType(rawSerialType uint64) (BTreeLeafPageCellSerialType, uint64, error) {
+	switch rawSerialType {
+	case 0:
+		return Null, 0, nil
+	case 1:
+		return I8, 1, nil
+	case 2:
+		return I16, 2, nil
+	case 3:
+		return I24, 3, nil
+	case 4:
+		return I32, 4, nil
+	case 5:
+		return I48, 6, nil
+	case 6:
+		return I64, 8, nil
+	case 7:
+		return F64, 8, nil
+	}
+	if rawSerialType >= 12 && rawSerialType&1 == 0 {
+		return BLOB, (rawSerialType - 12) / 2, nil
+	}
+	if rawSerialType >= 13 && rawSerialType&1 == 1 {
+		return STRING, (rawSerialType - 13) / 2, nil
+	}
+	return Null, 0, errors.New(fmt.Sprintf("unsupported serial type %d", rawSerialType))
+}
+
+func parseCellContentRecordHeadAndContent(reader *bytes.Reader) ([]TableBTreeLeafPageCellPayload, error) {
+	readBytes := 0
+	totalBytes, n, err := ReadVarint(reader)
+	if err != nil {
+		return nil, err
+	}
+	readBytes += n
+	out := make([]TableBTreeLeafPageCellPayload, totalBytes) // will never exceed this totalBytes anyway.
+	fieldsCount := 0
+	for i := 0; readBytes < int(totalBytes); i++ {
+		rawSerialType, n, err := ReadVarint(reader)
+		if err != nil {
+			return nil, err
+		}
+		readBytes += n
+		serialType, length, err := mapSerialType(rawSerialType)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = TableBTreeLeafPageCellPayload{
+			serialType: serialType,
+			length:     length,
+			data:       []byte{},
+		}
+		fieldsCount += 1
+	}
+	for j := 0; j < fieldsCount; j++ {
+		proto := out[j]
+		readSize := proto.length
+		valueArr := make([]byte, readSize)
+		_, err := reader.Read(valueArr)
+		if err != nil {
+			return nil, err
+		}
+		out[j].data = valueArr
+	}
+	return out[0:fieldsCount], nil
 }

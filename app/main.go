@@ -48,14 +48,20 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("database page size: %v\n", btreePage.cellOffsets)
+		fmt.Printf("database page size: %d\n", pageSize)
 
-		for i := range (*btreePage).cellOffsets {
-			_, err := btreePage.readCell(i)
+		tablesCount := 0
+		for row := range (*btreePage).cellOffsets {
+			cell, err := btreePage.readCell(row)
 			if err != nil {
 				log.Fatal(err)
 			}
+			rType := string(cell.fields[0].data)
+			if "table" == rType {
+				tablesCount += 1
+			}
 		}
+		fmt.Printf("number of tables: %d\n", tablesCount)
 
 	default:
 		fmt.Println("Unknown command", command)

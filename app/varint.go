@@ -14,7 +14,6 @@ func ReadVarint(reader *bytes.Reader) (uint64, int, error) {
 			return 0, bytesRead, err
 		}
 
-		// Increment the byte counter
 		bytesRead++
 
 		// Combine the lower 7 bits into the result
