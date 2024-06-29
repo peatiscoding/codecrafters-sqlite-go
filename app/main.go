@@ -10,6 +10,8 @@ import (
 	// "github.com/xwb1989/sqlparser"
 )
 
+// func parseTableBTreePage(content []byte)
+
 // Usage: your_sqlite3.sh sample.db .dbinfo
 func main() {
 	databaseFilePath := os.Args[1]
@@ -37,7 +39,18 @@ func main() {
 		// You can use print statements as follows for debugging, they'll be visible when running tests.
 		fmt.Println("Logs from your program will appear here!")
 
-		// Uncomment this to pass the first stage
+		// Parse first page for items
+		pageContent := make([]byte, pageSize)
+		_, err = databaseFile.ReadAt(pageContent, 100)
+		if err != nil {
+			log.Fatal(err)
+		}
+		btreePage, err := parseBTreePage(pageContent)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("Page content %v\n", btreePage)
+
 		fmt.Printf("database page size: %v", pageSize)
 	default:
 		fmt.Println("Unknown command", command)
