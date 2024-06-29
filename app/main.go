@@ -37,7 +37,6 @@ func main() {
 			return
 		}
 		// You can use print statements as follows for debugging, they'll be visible when running tests.
-		fmt.Println("Logs from your program will appear here!")
 
 		// Parse first page for items
 		pageContent := make([]byte, pageSize-100) // first page offset by 100
@@ -45,13 +44,19 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		btreePage, err := parseBTreePage(pageContent)
+		btreePage, err := parseBTreePage(pageContent, true)
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("Page content %v\n", btreePage)
+		fmt.Printf("database page size: %v\n", btreePage.cellOffsets)
 
-		fmt.Printf("database page size: %v", pageSize)
+		for i := range (*btreePage).cellOffsets {
+			_, err := btreePage.readCell(i)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+
 	default:
 		fmt.Println("Unknown command", command)
 		os.Exit(1)

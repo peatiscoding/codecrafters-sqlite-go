@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
 type BTreePageType = int8
@@ -26,9 +27,17 @@ type TableBTreePageHeader struct {
 type TableBTreePage struct {
 	header      TableBTreePageHeader
 	cellOffsets []int16
+	pageContent []byte // original pageContent
 }
 
-func parseBTreePage(pageContent []byte) (*TableBTreePage, error) {
+type TableBTreeLeafPageCell struct {
+	payloadSize  uint64
+	rowid        uint64
+	content      []byte
+	overflowPage int32
+}
+
+func parseBTreePage(pageContent []byte, isFirstPage bool) (*TableBTreePage, error) {
 	// get first byte for determine the type.
 	pageType := int8(pageContent[0])
 	numberOfFragmentedFreeBytes := int8(pageContent[7])
@@ -60,8 +69,41 @@ func parseBTreePage(pageContent []byte) (*TableBTreePage, error) {
 		return nil, err
 	}
 
+	// in case of first page, need to compensate the header offsets.
+	if isFirstPage {
+		for i := 0; i < len(cellOffsets); i++ {
+			cellOffsets[i] -= int16(100)
+		}
+	}
+
 	return &TableBTreePage{
 		header:      *header,
 		cellOffsets: cellOffsets,
+		pageContent: pageContent,
+	}, nil
+}
+
+func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error) {
+	contentOffset := p.cellOffsets[cellIndex]
+	reader := bytes.NewReader(p.pageContent[contentOffset:])
+	payloadSize, _, err := ReadVarint(reader)
+	if err != nil {
+		return nil, err
+	}
+	rowid, _, err := ReadVarint(reader)
+	if err != nil {
+		return nil, err
+	}
+	content := make([]byte, payloadSize)
+	if err := binary.Read(reader, binary.BigEndian, &content); err != nil {
+		return nil, err
+	}
+	fmt.Printf("Reading on %d found %d %d %s\n", contentOffset, payloadSize, rowid, string(content))
+
+	return &TableBTreeLeafPageCell{
+		payloadSize:  payloadSize,
+		rowid:        rowid,
+		content:      content,
+		overflowPage: 0,
 	}, nil
 }
