@@ -9,7 +9,8 @@ import (
 
 type Db struct {
 	pageSize uint16
-	schemas  []Schema
+	schemas  []*Schema // should be indices by type (e.g. indices, triggers, views).
+	tables   map[string]*Schema
 }
 
 func NewDb(databaseFilePath string) (*Db, error) {
@@ -44,17 +45,24 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		log.Fatal(err)
 	}
 
-	schemas := make([]Schema, len(btreePage.cellOffsets))
+	schemas := make([]*Schema, len(btreePage.cellOffsets))
+	tables := map[string]*Schema{}
 	for row := range (*btreePage).cellOffsets {
 		cell, err := btreePage.readCell(row)
 		if err != nil {
 			log.Fatal(err)
 		}
-		schemas[row] = *fromBTreeCell(cell)
+		sch := NewSchema(cell)
+		schemas[row] = sch
+
+		if Table == sch.schemaType {
+			tables[sch.name] = sch
+		}
 	}
 
 	return &Db{
 		pageSize: pageSize,
 		schemas:  schemas,
+		tables:   tables,
 	}, nil
 }

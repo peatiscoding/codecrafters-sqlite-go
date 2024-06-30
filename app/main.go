@@ -23,26 +23,21 @@ func main() {
 	switch command {
 	case ".tables":
 		tableNames := make([]string, 0)
-		for _, schema := range db.schemas {
-			if Table != schema.schemaType {
-				continue
-			}
+		for _, schema := range db.tables {
 			tableNames = append(tableNames, schema.tblName)
 		}
 		fmt.Printf("%s", strings.Join(tableNames, " "))
 	case ".dbinfo":
 		fmt.Printf("database page size: %d\n", db.pageSize)
 
-		tableCount := 0
-		for _, schema := range db.schemas {
-			if Table == schema.schemaType {
-				tableCount += 1
-			}
-		}
+		tableCount := len(db.tables)
 		fmt.Printf("number of tables: %d\n", tableCount)
 
 	default:
-		fmt.Println("Unknown command", command)
-		os.Exit(1)
+		// QUERY!
+		sql := command
+		items := strings.Split(sql, " ")
+		tableName := items[len(items)-1]
+		fmt.Printf("Reading table -> %s\n", tableName) //Find the table from existing schema
 	}
 }

@@ -32,7 +32,7 @@ func typeFromRawString(str string) SchemaType {
 	return Unknown
 }
 
-func fromBTreeCell(cell *TableBTreeLeafPageCell) *Schema {
+func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	typeStr := string(cell.fields[0].data)
 	name := string(cell.fields[1].data)
 	tblName := string(cell.fields[2].data)
