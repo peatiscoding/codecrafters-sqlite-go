@@ -53,6 +53,7 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 		fmt.Printf("Cannot find root page %v", cell.fields[3])
 	}
 	_sql := string(cell.fields[4].data)
+	fmt.Printf("SQL: %s\n", _sql)
 	stmt, err := sql.NewParser(strings.NewReader(_sql)).ParseStatement()
 	if err != nil {
 		// Fatal!
