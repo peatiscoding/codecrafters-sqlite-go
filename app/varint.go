@@ -2,8 +2,8 @@ package main
 
 import "bytes"
 
-func ReadVarint(reader *bytes.Reader) (uint64, int, error) {
-	var result uint64
+func ReadVarint(reader *bytes.Reader) (int64, int, error) {
+	var result int64
 	var shift uint
 	var bytesRead int
 
@@ -17,7 +17,7 @@ func ReadVarint(reader *bytes.Reader) (uint64, int, error) {
 		bytesRead++
 
 		// Combine the lower 7 bits into the result
-		result |= uint64(b&0x7F) << shift
+		result |= int64(b&0x7F) << shift
 
 		// Check if the MSB is set; if not, we are done
 		if b&0x80 == 0 {

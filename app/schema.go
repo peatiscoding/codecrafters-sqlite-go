@@ -1,6 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/rqlite/sql"
+)
 
 type SchemaType int8
 
@@ -17,6 +22,7 @@ type Schema struct {
 	name       string
 	tblName    string
 	sql        string
+	tableSpec  *sql.CreateTableStatement
 	rootPage   int
 }
 
@@ -44,15 +50,27 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 		rootPage = int(cell.fields[3].data[0])
 	} else {
 		// Fatal! unexpected format of the Schema object.
-		fmt.Printf("Cannot find root page %d", cell.fields[3])
+		fmt.Printf("Cannot find root page %v", cell.fields[3])
 	}
-	sql := string(cell.fields[4].data)
+	_sql := string(cell.fields[4].data)
+	stmt, err := sql.NewParser(strings.NewReader(_sql)).ParseStatement()
+	if err != nil {
+		// Fatal!
+		fmt.Printf("Cannot eval Schema SQL %v", cell.fields[3])
+	}
+
+	var tableSpec *sql.CreateTableStatement
+	switch stmt.(type) {
+	case *sql.CreateTableStatement:
+		tableSpec = stmt.(*sql.CreateTableStatement)
+	}
 
 	return &Schema{
 		schemaType: schemaType,
 		name:       name,
 		tblName:    tblName,
-		sql:        sql,
+		sql:        _sql,
+		tableSpec:  tableSpec,
 		rootPage:   rootPage,
 	}
 }

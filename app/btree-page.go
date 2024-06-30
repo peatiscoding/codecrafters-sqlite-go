@@ -46,14 +46,14 @@ type TableBTreePage struct {
 }
 
 type TableBTreeLeafPageCellField struct {
-	serialType BTreeLeafPageCellSerialType
-	length     uint64
-	data       []byte
+	serialType  BTreeLeafPageCellSerialType
+	contentSize int64
+	data        []byte
 }
 
 type TableBTreeLeafPageCell struct {
-	payloadSize  uint64
-	rowid        uint64
+	payloadSize  int64
+	rowid        int64
 	fields       []TableBTreeLeafPageCellField
 	overflowPage int32
 }
@@ -108,7 +108,7 @@ func parseBTreePage(pageContent []byte, isFirstPage bool) (*TableBTreePage, erro
 func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error) {
 	contentOffset := p.cellOffsets[cellIndex]
 	reader := bytes.NewReader(p.pageContent[contentOffset:])
-	payloadSize, _, err := ReadVarint(reader)
+	payloadSize, _, err := ReadVarint(reader) // including its' corresponding headers
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error
 	if err != nil {
 		return nil, err
 	}
-	content, err := parseCellContentRecordHeadAndContent(reader)
+	content, err := parseCellContentRecordHeadAndContent(reader, payloadSize)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error
 	}, nil
 }
 
-func mapSerialType(rawSerialType uint64) (BTreeLeafPageCellSerialType, uint64, error) {
+func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, error) {
 	switch rawSerialType {
 	case 0:
 		return Null, 0, nil
@@ -157,35 +157,46 @@ func mapSerialType(rawSerialType uint64) (BTreeLeafPageCellSerialType, uint64, e
 	return Null, 0, errors.New(fmt.Sprintf("unsupported serial type %d", rawSerialType))
 }
 
-func parseCellContentRecordHeadAndContent(reader *bytes.Reader) ([]TableBTreeLeafPageCellField, error) {
-	readBytes := 0
-	totalBytes, n, err := ReadVarint(reader)
+func parseCellContentRecordHeadAndContent(reader *bytes.Reader, payloadSize int64) ([]TableBTreeLeafPageCellField, error) {
+	readBytes := int64(0)
+	headerTotalBytes, n, err := ReadVarint(reader)
 	if err != nil {
 		return nil, err
 	}
-	readBytes += n
-	out := make([]TableBTreeLeafPageCellField, totalBytes) // will never exceed this totalBytes anyway.
+	readBytes += int64(n)
+	out := make([]TableBTreeLeafPageCellField, headerTotalBytes) // will never exceed this totalBytes anyway.
 	fieldsCount := 0
-	for i := 0; readBytes < int(totalBytes); i++ {
+	for i := 0; readBytes < int64(headerTotalBytes); i++ {
 		rawSerialType, n, err := ReadVarint(reader)
 		if err != nil {
 			return nil, err
 		}
-		readBytes += n
-		serialType, length, err := mapSerialType(rawSerialType)
+		readBytes += int64(n)
+		serialType, contentSize, err := mapSerialType(rawSerialType)
 		if err != nil {
 			return nil, err
 		}
 		out[i] = TableBTreeLeafPageCellField{
-			serialType: serialType,
-			length:     length,
-			data:       []byte{},
+			serialType:  serialType,
+			contentSize: contentSize,
+			data:        []byte{},
 		}
 		fieldsCount += 1
 	}
+
 	for j := 0; j < fieldsCount; j++ {
 		proto := out[j]
-		readSize := proto.length
+		readSize := proto.contentSize
+		readBytesLookAhead := readBytes + proto.contentSize
+		// Is this correct? It seems some of the `contentSize` is overshoot the expected totalBytes to be read. Hence this
+		// If block contain the unexpected overflow :(
+		if readBytesLookAhead > payloadSize {
+			// fmt.Printf("WARNING READ OVERFLOW by %d - %d = %d!\n", readBytesLookAhead, payloadSize, readBytesLookAhead-payloadSize)
+			readSize -= (readBytesLookAhead - payloadSize)
+			// fmt.Printf("Correction will read %d\n", readSize)
+		}
+		readBytes += readSize
+
 		valueArr := make([]byte, readSize)
 		_, err := reader.Read(valueArr)
 		if err != nil {
