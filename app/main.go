@@ -60,7 +60,7 @@ func main() {
 			switch firstSelection {
 			case "count(*)":
 				fmt.Printf("%d\n", len(tableRootPage.cellOffsets))
-			case "name":
+			default:
 				// Find where is the name of that particular table.
 				colIndex := 0
 				for i, col := range schema.tableSpec.Columns {
@@ -78,20 +78,10 @@ func main() {
 					}
 					fmt.Printf("%s\n", string(row.fields[colIndex].data))
 				}
-			default:
-				log.Fatal(fmt.Sprintf("unsupported selection statement %s", _sql))
-				os.Exit(1)
 			}
 		default:
 			log.Fatal(fmt.Sprintf("%s statement is not yet supported.", _sql))
 			os.Exit(1)
 		}
-
-		// Table
-		// items := strings.Split(sql, " ")
-		// tableName := items[len(items)-1]
-		// schema := db.tables[tableName]
-		// page := db.readPage(int64(schema.rootPage - 1))
-		// fmt.Printf("%d\n", len(page.cellOffsets))
 	}
 }
