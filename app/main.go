@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/rqlite/sql"
@@ -28,6 +29,7 @@ func main() {
 		for _, schema := range db.tables {
 			tableNames = append(tableNames, schema.tblName)
 		}
+		sort.Strings(tableNames)
 		fmt.Printf("%s", strings.Join(tableNames, " "))
 	case ".dbinfo":
 		fmt.Printf("database page size: %d\n", db.pageSize)
