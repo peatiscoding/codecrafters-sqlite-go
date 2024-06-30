@@ -23,24 +23,20 @@ func main() {
 	switch command {
 	case ".tables":
 		tableNames := make([]string, 0)
-		for _, table := range db.masterTables {
-			rowType := string(table.fields[0].data)
-			if "table" != rowType {
+		for _, schema := range db.schemas {
+			if Table != schema.schemaType {
 				continue
 			}
-			tblName := string(table.fields[2].data)
-			tableNames = append(tableNames, tblName)
+			tableNames = append(tableNames, schema.tblName)
 		}
 		fmt.Printf("%s", strings.Join(tableNames, " "))
 	case ".dbinfo":
 		fmt.Printf("database page size: %d\n", db.pageSize)
 
 		tableCount := 0
-		for _, table := range db.masterTables {
-			rowType := string(table.fields[0].data)
-			if "table" == rowType {
+		for _, schema := range db.schemas {
+			if Table == schema.schemaType {
 				tableCount += 1
-				continue
 			}
 		}
 		fmt.Printf("number of tables: %d\n", tableCount)

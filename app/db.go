@@ -8,8 +8,8 @@ import (
 )
 
 type Db struct {
-	pageSize     uint16
-	masterTables []TableBTreeLeafPageCell
+	pageSize uint16
+	schemas  []Schema
 }
 
 func NewDb(databaseFilePath string) (*Db, error) {
@@ -44,17 +44,17 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		log.Fatal(err)
 	}
 
-	masterTables := make([]TableBTreeLeafPageCell, len(btreePage.cellOffsets))
+	schemas := make([]Schema, len(btreePage.cellOffsets))
 	for row := range (*btreePage).cellOffsets {
 		cell, err := btreePage.readCell(row)
 		if err != nil {
 			log.Fatal(err)
 		}
-		masterTables[row] = *cell
+		schemas[row] = *fromBTreeCell(cell)
 	}
 
 	return &Db{
-		pageSize:     pageSize,
-		masterTables: masterTables,
+		pageSize: pageSize,
+		schemas:  schemas,
 	}, nil
 }
