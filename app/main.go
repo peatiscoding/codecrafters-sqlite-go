@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -26,7 +28,7 @@ func main() {
 		for _, schema := range db.tables {
 			tableNames = append(tableNames, schema.tblName)
 		}
-		fmt.Printf("%s", strings.Join(tableNames, " "))
+		fmt.Printf("%s\n", strings.Join(tableNames, " "))
 	case ".dbinfo":
 		fmt.Printf("database page size: %d\n", db.pageSize)
 
@@ -56,19 +58,25 @@ func main() {
 			// Read the whole page
 			tableRootPage := db.readPage(int64(schema.rootPage - 1))
 
-			firstSelection := strings.ToLower(strings.Trim(selectStmt.Columns[0].String(), "\""))
-			switch firstSelection {
-			case "count(*)":
+			colNames := make([]string, len(selectStmt.Columns))
+			for c, column := range selectStmt.Columns {
+				col := strings.ToLower(strings.Trim(column.String(), "\""))
+				colNames[c] = col
+			}
+
+			if len(colNames) == 1 && colNames[0] == "count(*)" {
 				fmt.Printf("%d\n", len(tableRootPage.cellOffsets))
-			default:
+			} else {
 				// Find where is the name of that particular table.
-				colIndex := 0
+				pending := len(colNames)
+				colIndices := make([]int, pending)
 				for i, col := range schema.tableSpec.Columns {
-					// fmt.Printf("Scanning for %s/%s\n", firstSelection, col.Name)
-					if col.Name.Name == firstSelection {
-						// Found the column!
-						colIndex = i
-						break
+					for j, cn := range colNames {
+						// fmt.Printf("Scanning for %s through %s %v\n", cn, col.Name.Name, colIndices)
+						if col.Name.Name == cn {
+							// Found the column!
+							colIndices[j] = i
+						}
 					}
 				}
 				// Read values from all cells per such column index
@@ -78,7 +86,20 @@ func main() {
 						log.Fatal(fmt.Sprintf("Failed to read column data from row #%d at offset %d", j, rowOffset))
 						os.Exit(1)
 					}
-					fmt.Printf("%s\n", string(row.fields[colIndex].data))
+					for v, ci := range colIndices {
+						if v != 0 {
+							fmt.Print("|")
+						}
+						if STRING == row.fields[ci].serialType {
+							fmt.Printf("%s", string(row.fields[ci].data))
+						} else {
+							var i64 = 0
+							reader := bytes.NewReader(row.fields[ci].data)
+							binary.Read(reader, binary.BigEndian, &i64)
+							fmt.Printf("%d", i64)
+						}
+					}
+					fmt.Println()
 				}
 			}
 		default:

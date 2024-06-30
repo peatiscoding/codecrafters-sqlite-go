@@ -54,7 +54,8 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	}
 	_sql := strings.ReplaceAll(string(cell.fields[4].data), " text", "") // it seems "text" was detected as another column :(
 	_sql = strings.ReplaceAll(_sql, " integer", "")                      // it seems "integer" was detected as another column :(
-	_sql = strings.ReplaceAll(_sql, " primary key", "")                  // it seems "primary key" was detected as another column :(
+	_sql = strings.ReplaceAll(_sql, "\n", "")                            // it seems "primary key" was detected as another column :(
+	_sql = strings.ReplaceAll(_sql, "\t", " ")                           // it seems "primary key" was detected as another column :(
 	// fmt.Printf("SQL: %s\n", _sql)
 	stmt, err := sql.NewParser(strings.NewReader(_sql)).ParseStatement()
 	if err != nil {
@@ -66,6 +67,7 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	switch stmt.(type) {
 	case *sql.CreateTableStatement:
 		tableSpec = stmt.(*sql.CreateTableStatement)
+		// fmt.Printf("Spec: %d\n", len(tableSpec.Columns))
 	}
 
 	return &Schema{
