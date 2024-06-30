@@ -64,9 +64,11 @@ func main() {
 				// Find where is the name of that particular table.
 				colIndex := 0
 				for i, col := range schema.tableSpec.Columns {
+					// fmt.Printf("Scanning for %s/%s\n", firstSelection, col.Name)
 					if col.Name.Name == firstSelection {
 						// Found the column!
 						colIndex = i
+						break
 					}
 				}
 				// Read values from all cells per such column index
