@@ -38,6 +38,8 @@ func main() {
 		sql := command
 		items := strings.Split(sql, " ")
 		tableName := items[len(items)-1]
-		fmt.Printf("Reading table -> %s\n", tableName) //Find the table from existing schema
+		schema := db.tables[tableName]
+		page := db.readPage(int64(schema.rootPage - 1))
+		fmt.Printf("%d", len(page.cellOffsets))
 	}
 }

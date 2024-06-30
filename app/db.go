@@ -11,6 +11,7 @@ type Db struct {
 	pageSize uint16
 	schemas  []*Schema // should be indices by type (e.g. indices, triggers, views).
 	tables   map[string]*Schema
+	file     *os.File
 }
 
 func NewDb(databaseFilePath string) (*Db, error) {
@@ -64,5 +65,18 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		pageSize: pageSize,
 		schemas:  schemas,
 		tables:   tables,
+		file:     databaseFile,
 	}, nil
+}
+
+func (d *Db) readPage(pageIndex int64) *TableBTreePage {
+	// assert pageNumber > 0
+	pageContent := make([]byte, d.pageSize)
+	_, err := d.file.ReadAt(pageContent, int64(d.pageSize)*pageIndex)
+	if err != nil {
+		log.Fatal(err)
+	}
+	btreePage, err := parseBTreePage(pageContent, false)
+	// number of cells
+	return btreePage
 }

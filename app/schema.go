@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 type SchemaType int8
 
 const (
@@ -36,9 +38,15 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	typeStr := string(cell.fields[0].data)
 	name := string(cell.fields[1].data)
 	tblName := string(cell.fields[2].data)
-	sql := string(cell.fields[3].data)
 	schemaType := typeFromRawString(typeStr)
-	rootPage := 0
+	var rootPage int = 0
+	if I8 == cell.fields[3].serialType {
+		rootPage = int(cell.fields[3].data[0])
+	} else {
+		// Fatal! unexpected format of the Schema object.
+		fmt.Printf("Cannot find root page %d", cell.fields[3])
+	}
+	sql := string(cell.fields[4].data)
 
 	return &Schema{
 		schemaType: schemaType,
