@@ -28,7 +28,7 @@ func main() {
 		for _, schema := range db.tables {
 			tableNames = append(tableNames, schema.tblName)
 		}
-		fmt.Printf("%s\n", strings.Join(tableNames, " "))
+		fmt.Printf("%s", strings.Join(tableNames, " "))
 	case ".dbinfo":
 		fmt.Printf("database page size: %d\n", db.pageSize)
 
