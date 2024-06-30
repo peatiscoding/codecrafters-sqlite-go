@@ -57,7 +57,7 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	stmt, err := sql.NewParser(strings.NewReader(_sql)).ParseStatement()
 	if err != nil {
 		// Fatal!
-		fmt.Printf("Cannot eval Schema SQL %v", cell.fields[3])
+		fmt.Printf("WARNING Cannot eval Schema SQL %d (%d); %s", cell.fields[3].serialType, cell.fields[3].contentSize, err.Error())
 	}
 
 	var tableSpec *sql.CreateTableStatement
