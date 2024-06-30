@@ -40,6 +40,6 @@ func main() {
 		tableName := items[len(items)-1]
 		schema := db.tables[tableName]
 		page := db.readPage(int64(schema.rootPage - 1))
-		fmt.Printf("%d", len(page.cellOffsets))
+		fmt.Printf("%d\n", len(page.cellOffsets))
 	}
 }
