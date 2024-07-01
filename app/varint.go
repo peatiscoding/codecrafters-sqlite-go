@@ -17,7 +17,8 @@ func ReadVarint(reader *bytes.Reader) (int64, int, error) {
 		bytesRead++
 
 		// Combine the lower 7 bits into the result
-		result |= int64(b&0x7F) << shift
+		result = result << shift
+		result |= int64(b & 0x7F)
 
 		// Check if the MSB is set; if not, we are done
 		if b&0x80 == 0 {
