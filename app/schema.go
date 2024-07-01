@@ -71,9 +71,9 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	switch stmt.(type) {
 	case *sql.CreateTableStatement:
 		tableSpec = stmt.(*sql.CreateTableStatement)
-		fmt.Fprintf(os.Stderr, "Spec: %d\n", len(tableSpec.Columns))
+		fmt.Fprintf(os.Stderr, "[dbg] Spec: %d\n", len(tableSpec.Columns))
 		for d, col := range tableSpec.Columns {
-			fmt.Fprintf(os.Stderr, " COL= %s\n", col.Name.Name)
+			fmt.Fprintf(os.Stderr, "[db] COL= %s\n", col.Name.Name)
 			colIndexMap[col.Name.Name] = d
 		}
 	}
