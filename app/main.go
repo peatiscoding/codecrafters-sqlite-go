@@ -63,10 +63,35 @@ func main() {
 				col := strings.ToLower(strings.Trim(column.String(), "\""))
 				colNames[c] = col
 			}
+			where := map[string]string{}
+			// apply simple condition here
+			if selectStmt.WhereExpr != nil {
+				whereClause := strings.SplitN(selectStmt.WhereExpr.String(), "=", 2)
+				key := strings.Trim(whereClause[0], "\" ")
+				where[key] = strings.Trim(whereClause[1], "' ")
+			}
 
+			count := 0
 			if len(colNames) == 1 && colNames[0] == "count(*)" {
-				// TODO: Apply filter?
-				fmt.Printf("%d\n", len(tableRootPage.cellOffsets))
+				// apply simple condition here
+				if selectStmt.WhereExpr != nil {
+					// Read values from all cells per such column index
+					for j, rowOffset := range tableRootPage.cellOffsets {
+						row, err := tableRootPage.readCell(j)
+						if err != nil {
+							log.Fatal(fmt.Sprintf("Failed to read column data from row #%d at offset %d", j, rowOffset))
+							os.Exit(1)
+						}
+						if schema.applyFilter(where, row) != true {
+							// predicate did not match
+							continue
+						}
+						count += 1
+					}
+				} else {
+					count = len(tableRootPage.cellOffsets)
+				}
+				fmt.Printf("%d\n", count)
 			} else {
 				// Find where is the name of that particular table.
 				pending := len(colNames)
@@ -87,18 +112,9 @@ func main() {
 						log.Fatal(fmt.Sprintf("Failed to read column data from row #%d at offset %d", j, rowOffset))
 						os.Exit(1)
 					}
-
-					// apply simple condition here
-					if selectStmt.WhereExpr != nil {
-						where := map[string]string{}
-						whereClause := strings.SplitN(selectStmt.WhereExpr.String(), "=", 2)
-						key := strings.Trim(whereClause[0], "\" ")
-						where[key] = strings.Trim(whereClause[1], "' ")
-
-						if schema.applyFilter(where, row) != true {
-							// predicate did not match
-							continue
-						}
+					if schema.applyFilter(where, row) != true {
+						// predicate did not match
+						continue
 					}
 
 					// Print output
