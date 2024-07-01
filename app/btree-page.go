@@ -145,18 +145,6 @@ func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error
 	}, nil
 }
 
-// Simple Equal comparison bruteforce!
-func (c *TableBTreeLeafPageCell) applyFilter(condition map[string]string, usingSchema *Schema) bool {
-	for key, value := range condition {
-		ci := usingSchema.colIndexMap[key]
-		str := c.fields[ci].String()
-		if str != value {
-			return false
-		}
-	}
-	return true
-}
-
 func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, error) {
 	switch rawSerialType {
 	case 0:

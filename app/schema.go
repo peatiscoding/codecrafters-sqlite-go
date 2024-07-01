@@ -85,3 +85,15 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 		rootPage:    rootPage,
 	}
 }
+
+// Simple Equal comparison bruteforce!
+func (s *Schema) applyFilter(condition map[string]string, cell *TableBTreeLeafPageCell) bool {
+	for key, value := range condition {
+		ci := s.colIndexMap[key]
+		str := cell.fields[ci].String()
+		if str != value {
+			return false
+		}
+	}
+	return true
+}

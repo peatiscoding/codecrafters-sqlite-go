@@ -73,7 +73,11 @@ func main() {
 				colIndices := make([]int, pending)
 				for j, cn := range colNames {
 					// fmt.Printf("Scanning for %s through %s %v\n", cn, col.Name.Name, colIndices)
-					colIndices[j] = schema.colIndexMap[cn]
+					colIndices[j], ok = schema.colIndexMap[cn]
+					if !ok {
+						log.Fatal(fmt.Sprintf("Unknown column %s to select", cn))
+						os.Exit(1)
+					}
 				}
 
 				// Read values from all cells per such column index
@@ -84,11 +88,18 @@ func main() {
 						os.Exit(1)
 					}
 
-					// apply filter.
-					// if row.applyFilter() != true {
-					// 	// predicate did not match
-					// 	continue
-					// }
+					// apply simple condition here
+					if selectStmt.WhereExpr != nil {
+						where := map[string]string{}
+						whereClause := strings.SplitN(selectStmt.WhereExpr.String(), "=", 2)
+						key := strings.Trim(whereClause[0], "\" ")
+						where[key] = strings.Trim(whereClause[1], "' ")
+
+						if schema.applyFilter(where, row) != true {
+							// predicate did not match
+							continue
+						}
+					}
 
 					// Print output
 					for v, ci := range colIndices {
