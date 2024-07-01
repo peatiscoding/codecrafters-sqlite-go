@@ -18,12 +18,13 @@ const (
 )
 
 type Schema struct {
-	schemaType SchemaType
-	name       string
-	tblName    string
-	sql        string
-	tableSpec  *sql.CreateTableStatement
-	rootPage   int
+	schemaType  SchemaType
+	name        string
+	tblName     string
+	sql         string
+	tableSpec   *sql.CreateTableStatement
+	colIndexMap map[string]int
+	rootPage    int
 }
 
 func typeFromRawString(str string) SchemaType {
@@ -64,18 +65,23 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	}
 
 	var tableSpec *sql.CreateTableStatement
+	var colIndexMap = map[string]int{}
 	switch stmt.(type) {
 	case *sql.CreateTableStatement:
 		tableSpec = stmt.(*sql.CreateTableStatement)
 		// fmt.Printf("Spec: %d\n", len(tableSpec.Columns))
+		for d, col := range tableSpec.Columns {
+			colIndexMap[col.Name.Name] = d
+		}
 	}
 
 	return &Schema{
-		schemaType: schemaType,
-		name:       name,
-		tblName:    tblName,
-		sql:        _sql,
-		tableSpec:  tableSpec,
-		rootPage:   rootPage,
+		schemaType:  schemaType,
+		name:        name,
+		tblName:     tblName,
+		sql:         _sql,
+		tableSpec:   tableSpec,
+		colIndexMap: colIndexMap,
+		rootPage:    rootPage,
 	}
 }

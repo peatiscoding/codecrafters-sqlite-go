@@ -58,6 +58,22 @@ type TableBTreeLeafPageCell struct {
 	overflowPage int32
 }
 
+func (f *TableBTreeLeafPageCellField) String() string {
+	if STRING == f.serialType {
+		return string(f.data)
+	} else {
+		i64 := f.Integer()
+		return fmt.Sprintf("%d", i64)
+	}
+}
+
+func (f *TableBTreeLeafPageCellField) Integer() int64 {
+	var i64 = int64(0)
+	reader := bytes.NewReader(f.data)
+	binary.Read(reader, binary.BigEndian, &i64)
+	return i64
+}
+
 func parseBTreePage(pageContent []byte, isFirstPage bool) (*TableBTreePage, error) {
 	// get first byte for determine the type.
 	pageType := int8(pageContent[0])
@@ -127,6 +143,18 @@ func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error
 		fields:       content,
 		overflowPage: 0,
 	}, nil
+}
+
+// Simple Equal comparison bruteforce!
+func (c *TableBTreeLeafPageCell) applyFilter(condition map[string]string, usingSchema *Schema) bool {
+	for key, value := range condition {
+		ci := usingSchema.colIndexMap[key]
+		str := c.fields[ci].String()
+		if str != value {
+			return false
+		}
+	}
+	return true
 }
 
 func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, error) {

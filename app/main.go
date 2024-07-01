@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -67,20 +65,17 @@ func main() {
 			}
 
 			if len(colNames) == 1 && colNames[0] == "count(*)" {
+				// TODO: Apply filter?
 				fmt.Printf("%d\n", len(tableRootPage.cellOffsets))
 			} else {
 				// Find where is the name of that particular table.
 				pending := len(colNames)
 				colIndices := make([]int, pending)
-				for i, col := range schema.tableSpec.Columns {
-					for j, cn := range colNames {
-						// fmt.Printf("Scanning for %s through %s %v\n", cn, col.Name.Name, colIndices)
-						if col.Name.Name == cn {
-							// Found the column!
-							colIndices[j] = i
-						}
-					}
+				for j, cn := range colNames {
+					// fmt.Printf("Scanning for %s through %s %v\n", cn, col.Name.Name, colIndices)
+					colIndices[j] = schema.colIndexMap[cn]
 				}
+
 				// Read values from all cells per such column index
 				for j, rowOffset := range tableRootPage.cellOffsets {
 					row, err := tableRootPage.readCell(j)
@@ -88,18 +83,20 @@ func main() {
 						log.Fatal(fmt.Sprintf("Failed to read column data from row #%d at offset %d", j, rowOffset))
 						os.Exit(1)
 					}
+
+					// apply filter.
+					// if row.applyFilter() != true {
+					// 	// predicate did not match
+					// 	continue
+					// }
+
+					// Print output
 					for v, ci := range colIndices {
 						if v != 0 {
 							fmt.Print("|")
 						}
-						if STRING == row.fields[ci].serialType {
-							fmt.Printf("%s", string(row.fields[ci].data))
-						} else {
-							var i64 = 0
-							reader := bytes.NewReader(row.fields[ci].data)
-							binary.Read(reader, binary.BigEndian, &i64)
-							fmt.Printf("%d", i64)
-						}
+						str := row.fields[ci].String()
+						fmt.Printf("%s", str)
 					}
 					fmt.Println()
 				}
