@@ -61,6 +61,8 @@ type TableBTreeLeafPageCell struct {
 func (f *TableBTreeLeafPageCellField) String() string {
 	if STRING == f.serialType {
 		return string(f.data)
+	} else if Null == f.serialType {
+		return "<null>"
 	} else {
 		i64 := f.Integer()
 		return fmt.Sprintf("%d", i64)
