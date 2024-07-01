@@ -56,7 +56,7 @@ func main() {
 			}
 
 			// Read the whole page
-			tableRootPage := db.readPage(int64(schema.rootPage - 1))
+			tbl := NewDBTable(db, schema)
 
 			colNames := make([]string, len(selectStmt.Columns))
 			for c, column := range selectStmt.Columns {
@@ -71,26 +71,10 @@ func main() {
 				where[key] = strings.Trim(whereClause[1], "' ")
 			}
 
-			count := 0
 			if len(colNames) == 1 && colNames[0] == "count(*)" {
 				// apply simple condition here
-				if selectStmt.WhereExpr != nil {
-					// Read values from all cells per such column index
-					for j, rowOffset := range tableRootPage.cellOffsets {
-						row, err := tableRootPage.readCell(j)
-						if err != nil {
-							log.Fatal(fmt.Sprintf("Failed to read column data from row #%d at offset %d", j, rowOffset))
-							os.Exit(1)
-						}
-						if schema.applyFilter(where, row) != true {
-							// predicate did not match
-							continue
-						}
-						count += 1
-					}
-				} else {
-					count = len(tableRootPage.cellOffsets)
-				}
+				// Read values from all cells per such column index
+				count := len(tbl.rows(where))
 				fmt.Printf("%d\n", count)
 			} else {
 				// Find where is the name of that particular table.
@@ -106,24 +90,13 @@ func main() {
 				}
 
 				// Read values from all cells per such column index
-				for j, rowOffset := range tableRootPage.cellOffsets {
-					row, err := tableRootPage.readCell(j)
-					if err != nil {
-						log.Fatal(fmt.Sprintf("Failed to read column data from row #%d at offset %d", j, rowOffset))
-						os.Exit(1)
-					}
-					if schema.applyFilter(where, row) != true {
-						// predicate did not match
-						continue
-					}
-
+				for _, row := range tbl.rows(where) {
 					// Print output
 					for v, ci := range colIndices {
 						if v != 0 {
 							fmt.Print("|")
 						}
-						str := row.fields[ci].String()
-						fmt.Printf("%s", str)
+						fmt.Printf("%s", row.Column(ci))
 					}
 					fmt.Println()
 				}

@@ -26,6 +26,8 @@ const (
 	I48                                = 5
 	I64                                = 6
 	F64                                = 7
+	I0                                 = 8 // False
+	I1                                 = 9 // True
 	BLOB                               = 12
 	STRING                             = 13
 )
@@ -36,7 +38,7 @@ type TableBTreePageHeader struct {
 	numberOfCells               int16
 	cellContentOffset           int16
 	numberOfFragmentedFreeBytes int8
-	rightMostPointer            int32 // only available in BTreePage
+	rightMostPointer            uint32 // only available in BTreePage
 }
 
 type TableBTreePage struct {
@@ -46,9 +48,10 @@ type TableBTreePage struct {
 }
 
 type TableBTreeLeafPageCellField struct {
-	serialType  BTreeLeafPageCellSerialType
-	contentSize int64
-	data        []byte
+	serialType   BTreeLeafPageCellSerialType
+	contentSize  int64
+	isRowIdAlias bool
+	data         []byte
 }
 
 type TableBTreeLeafPageCell struct {
@@ -58,12 +61,22 @@ type TableBTreeLeafPageCell struct {
 	overflowPage int32
 }
 
+type TableBTreeInteriorPageCell struct {
+	rowid          int64
+	leftPageNumber uint32 // 4 bytes integer (8x4 = 32)
+}
+
 func (f *TableBTreeLeafPageCellField) String() string {
-	if STRING == f.serialType {
+	switch f.serialType {
+	case STRING:
 		return string(f.data)
-	} else if Null == f.serialType {
+	case Null:
 		return "<null>"
-	} else {
+	case I0:
+		return "0"
+	case I1:
+		return "1"
+	default:
 		i64 := f.Integer()
 		return fmt.Sprintf("%d", i64)
 	}
@@ -95,8 +108,7 @@ func parseBTreePage(pageContent []byte, isFirstPage bool) (*TableBTreePage, erro
 	}
 	cellPointsArrayOffset := int16(8)
 
-	if InteriorIndex == pageType {
-		header.rightMostPointer = 0
+	if InteriorTable == pageType {
 		if err := binary.Read(bytes.NewReader(pageContent[8:12]), binary.BigEndian, &(header.rightMostPointer)); err != nil {
 			return nil, err
 		}
@@ -123,7 +135,13 @@ func parseBTreePage(pageContent []byte, isFirstPage bool) (*TableBTreePage, erro
 }
 
 // this is basically SELECT * FROM TABLE/
-func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error) {
+//
+// this consider as a Single Row. (in TableLeafPage)
+// - A varint which is the total number of bytes of payload, including any overflow
+// - A varint which is the integer key, a.k.a. "rowid"
+// - The initial portion of the payload that does not spill to overflow pages.
+// - A 4-byte big-endian integer page number for the first page of the overflow page list - omitted if all payload fits on the b-tree page.
+func (p *TableBTreePage) readLeafCell(cellIndex int, rowidAliasIndex int) (*TableBTreeLeafPageCell, error) {
 	contentOffset := p.cellOffsets[cellIndex]
 	reader := bytes.NewReader(p.pageContent[contentOffset:])
 	payloadSize, _, err := ReadVarint(reader) // including its' corresponding headers
@@ -139,12 +157,37 @@ func (p *TableBTreePage) readCell(cellIndex int) (*TableBTreeLeafPageCell, error
 		return nil, err
 	}
 
+	if rowidAliasIndex >= 0 {
+		content[rowidAliasIndex].isRowIdAlias = true
+	}
+
 	return &TableBTreeLeafPageCell{
 		payloadSize:  payloadSize,
 		rowid:        rowid,
 		fields:       content,
 		overflowPage: 0,
 	}, nil
+}
+
+func (p *TableBTreePage) readAllInteriorCells() ([]TableBTreeInteriorPageCell, error) {
+	res := make([]TableBTreeInteriorPageCell, len(p.cellOffsets))
+	for j, cellOffset := range p.cellOffsets {
+
+		var i32 = uint32(0) // 4 bytes
+		i32Reader := bytes.NewReader(p.pageContent[cellOffset : cellOffset+4])
+		binary.Read(i32Reader, binary.BigEndian, &i32)
+
+		reader := bytes.NewReader(p.pageContent[cellOffset+4:])
+		rowid, _, err := ReadVarint(reader)
+		if err != nil {
+			return nil, err
+		}
+		res[j] = TableBTreeInteriorPageCell{
+			rowid:          rowid,
+			leftPageNumber: i32,
+		}
+	}
+	return res, nil
 }
 
 func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, error) {
@@ -165,6 +208,10 @@ func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, err
 		return I64, 8, nil
 	case 7:
 		return F64, 8, nil
+	case 8:
+		return I0, 0, nil // = 0
+	case 9:
+		return I1, 0, nil // = 1
 	}
 	if rawSerialType >= 12 && rawSerialType&1 == 0 {
 		return BLOB, (rawSerialType - 12) / 2, nil
@@ -184,6 +231,7 @@ func parseCellContentRecordHeadAndContent(reader *bytes.Reader, payloadSize int6
 	readBytes += int64(n)
 	out := make([]TableBTreeLeafPageCellField, headerTotalBytes) // will never exceed this totalBytes anyway.
 	fieldsCount := 0
+	// Parse Cell Header
 	for i := 0; readBytes < int64(headerTotalBytes); i++ {
 		rawSerialType, n, err := ReadVarint(reader)
 		if err != nil {
@@ -195,15 +243,20 @@ func parseCellContentRecordHeadAndContent(reader *bytes.Reader, payloadSize int6
 			return nil, err
 		}
 		out[i] = TableBTreeLeafPageCellField{
-			serialType:  serialType,
-			contentSize: contentSize,
-			data:        []byte{},
+			serialType:   serialType,
+			contentSize:  contentSize,
+			isRowIdAlias: false,
+			data:         []byte{},
 		}
 		fieldsCount += 1
 	}
 
+	// Parse Cell's value
 	for j := 0; j < fieldsCount; j++ {
 		proto := out[j]
+		if proto.contentSize <= 0 {
+			continue
+		}
 		readSize := proto.contentSize
 		readBytesLookAhead := readBytes + proto.contentSize
 		// Is this correct? It seems some of the `contentSize` is overshoot the expected totalBytes to be read. Hence this

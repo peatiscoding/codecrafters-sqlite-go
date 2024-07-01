@@ -19,13 +19,14 @@ const (
 )
 
 type Schema struct {
-	schemaType  SchemaType
-	name        string
-	tblName     string
-	sql         string
-	tableSpec   *sql.CreateTableStatement
-	colIndexMap map[string]int
-	rootPage    int
+	schemaType         SchemaType
+	name               string
+	tblName            string
+	sql                string
+	tableSpec          *sql.CreateTableStatement
+	rowIdAliasColIndex int // -1 means no alias, otherwise colIndex that uses rowId instead.
+	colIndexMap        map[string]int
+	rootPage           int
 }
 
 func typeFromRawString(str string) SchemaType {
@@ -68,30 +69,38 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 
 	var tableSpec *sql.CreateTableStatement
 	var colIndexMap = map[string]int{}
+	rowIdAliasColIndex := -1
 	switch stmt.(type) {
 	case *sql.CreateTableStatement:
 		tableSpec = stmt.(*sql.CreateTableStatement)
 		fmt.Fprintf(os.Stderr, "[dbg] Spec: %d\n", len(tableSpec.Columns))
 		for d, col := range tableSpec.Columns {
-			fmt.Fprintf(os.Stderr, "[db] COL= %s\n", col.Name.Name)
+			fmt.Fprintf(os.Stderr, "[dbg] COL= %s %v\n", col.Name.Name, col.Constraints)
+			if len(col.Constraints) > 0 && col.Constraints[0].String() == "PRIMARY KEY AUTOINCREMENT" {
+				rowIdAliasColIndex = d
+			}
 			colIndexMap[col.Name.Name] = d
 		}
 	}
 
 	return &Schema{
-		schemaType:  schemaType,
-		name:        name,
-		tblName:     tblName,
-		sql:         _sql,
-		tableSpec:   tableSpec,
-		colIndexMap: colIndexMap,
-		rootPage:    rootPage,
+		schemaType:         schemaType,
+		name:               name,
+		tblName:            tblName,
+		sql:                _sql,
+		tableSpec:          tableSpec,
+		rowIdAliasColIndex: rowIdAliasColIndex,
+		colIndexMap:        colIndexMap,
+		rootPage:           rootPage,
 	}
 }
 
 // Simple Equal comparison bruteforce!
-func (s *Schema) applyFilter(condition map[string]string, cell *TableBTreeLeafPageCell) bool {
-	for key, value := range condition {
+func (s *Schema) applyFilter(condition *map[string]string, cell *TableBTreeLeafPageCell) bool {
+	if len(*condition) == 0 {
+		return true
+	}
+	for key, value := range *condition {
 		ci := s.colIndexMap[key]
 		str := cell.fields[ci].String()
 		if str != value {

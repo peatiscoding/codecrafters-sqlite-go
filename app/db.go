@@ -49,7 +49,7 @@ func NewDb(databaseFilePath string) (*Db, error) {
 	schemas := make([]*Schema, len(btreePage.cellOffsets))
 	tables := map[string]*Schema{}
 	for row := range (*btreePage).cellOffsets {
-		cell, err := btreePage.readCell(row)
+		cell, err := btreePage.readLeafCell(row, 0)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -69,6 +69,7 @@ func NewDb(databaseFilePath string) (*Db, error) {
 	}, nil
 }
 
+// @param pageIndex = pageNo - 1
 func (d *Db) readPage(pageIndex int64) *TableBTreePage {
 	// assert pageNumber > 0
 	pageContent := make([]byte, d.pageSize)
@@ -76,7 +77,11 @@ func (d *Db) readPage(pageIndex int64) *TableBTreePage {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// fmt.Fprintf(os.Stderr, "[dbg] reading page (index) %d\n", pageIndex)
 	btreePage, err := parseBTreePage(pageContent, false)
+	if err != nil {
+		log.Fatal(err)
+	}
 	// number of cells
 	return btreePage
 }
