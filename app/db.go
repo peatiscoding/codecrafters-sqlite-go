@@ -19,6 +19,7 @@ type Db struct {
 	pageSize uint16
 	schemas  []*Schema // should be indices by type (e.g. indices, triggers, views).
 	tables   map[string]*DBTable
+	indices  []*DBIndex
 	file     *os.File
 }
 
@@ -63,7 +64,7 @@ func NewDb(databaseFilePath string) (*Db, error) {
 	}
 
 	for row := range (*btreePage).cellOffsets {
-		cell, err := btreePage.readLeafCell(row, 0)
+		cell, err := btreePage.readTableLeafCell(row, 0)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -85,7 +86,12 @@ func NewDb(databaseFilePath string) (*Db, error) {
 			}
 			indexSpec := stmt.(*sql.CreateIndexStatement)
 			// Create new Index
-			NewDbIndex(&db, sch, indexSpec)
+			idx := NewDbIndex(&db, sch, indexSpec)
+			targetTbl, ok := tables[idx.assocTable]
+			if !ok {
+				log.Fatalf("Index cannot be registered to unknown table %s", idx.assocTable)
+			}
+			targetTbl.assocIndices = append(targetTbl.assocIndices, idx)
 		}
 	}
 

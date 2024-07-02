@@ -67,11 +67,17 @@ func main() {
 				key := strings.Trim(whereClause[0], "\" ")
 				where[key] = strings.Trim(whereClause[1], "' ")
 			}
+			eligibleIndex, matchedPrefix := tbl.eligibleIndex(&where)
 
 			if len(colNames) == 1 && colNames[0] == "count(*)" {
 				// apply simple condition here
 				// Read values from all cells per such column index
-				count := len(tbl.rows(where))
+				count := 0
+				if eligibleIndex != nil {
+					count = eligibleIndex.CountRange(&where, matchedPrefix)
+				} else {
+					count = len(tbl.rows(where))
+				}
 				fmt.Printf("%d\n", count)
 			} else {
 				// Find where is the name of that particular table.

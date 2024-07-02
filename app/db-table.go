@@ -9,7 +9,7 @@ import (
 	"github.com/rqlite/sql"
 )
 
-type DBLeafPage struct {
+type _DBLeafPage struct {
 	maxRowId  int64 // 0 means the last page.
 	rowsCount int
 	pageIndex uint32
@@ -17,28 +17,28 @@ type DBLeafPage struct {
 }
 
 // automatically traverse through all pages.
-func newDbLeafPages(db *Db, pageNumber int64, maxRowId int64) []DBLeafPage {
+func walkTableLeafPages(db *Db, pageNumber int64, maxRowId int64) []_DBLeafPage {
 	pageIndex := pageNumber - 1
 	leafPage := db.readPage(pageIndex)
-	out := []DBLeafPage{}
+	out := []_DBLeafPage{}
 	switch leafPage.header.pageType {
 	case LeafTable:
-		return append(out, DBLeafPage{
+		return append(out, _DBLeafPage{
 			maxRowId:  maxRowId,
 			pageIndex: uint32(pageIndex),
 			rowsCount: int(len(leafPage.cellOffsets)),
 			leafPage:  leafPage,
 		})
 	case InteriorTable:
-		cells, err := leafPage.readAllInteriorCells()
+		cells, err := leafPage.readAllTableInteriorCells()
 		if err != nil {
 			log.Fatal("Failed to get associated interior cells")
 		}
 		for _, cell := range cells {
-			out = append(out, newDbLeafPages(db, int64(cell.leftPageNumber), cell.rowid)...)
+			out = append(out, walkTableLeafPages(db, int64(cell.leftPageNumber), cell.rowid)...)
 		}
 		// Handle interior page's header
-		out = append(out, newDbLeafPages(db, int64(leafPage.header.rightMostPointer), 0)...)
+		out = append(out, walkTableLeafPages(db, int64(leafPage.header.rightMostPointer), 0)...)
 	default:
 		log.Fatalf("Unsupported page type %#x", leafPage.header.pageType)
 	}
@@ -52,7 +52,8 @@ type DBTable struct {
 	colIndexMap        map[string]int
 	tableSpec          *sql.CreateTableStatement
 	db                 *Db
-	btreePages         []DBLeafPage
+	btreePages         []_DBLeafPage
+	assocIndices       []*DBIndex
 }
 
 func NewDBTable(db *Db, schema *Schema, tableSpec *sql.CreateTableStatement) *DBTable {
@@ -68,7 +69,7 @@ func NewDBTable(db *Db, schema *Schema, tableSpec *sql.CreateTableStatement) *DB
 	}
 
 	// assert pageNumber > 0
-	leafPages := newDbLeafPages(db, int64(schema.rootPage), 0)
+	leafPages := walkTableLeafPages(db, int64(schema.rootPage), 0)
 	// write debug information
 	// lastRowId := int64(0)
 	lastP := len(leafPages) - 1
@@ -93,6 +94,7 @@ func NewDBTable(db *Db, schema *Schema, tableSpec *sql.CreateTableStatement) *DB
 		btreePages:         leafPages,
 		rowIdAliasColIndex: rowIdAliasColIndex,
 		colIndexMap:        colIndexMap,
+		assocIndices:       []*DBIndex{},
 		Schema:             *schema,
 	}
 }
@@ -106,7 +108,7 @@ func (t *DBTable) rows(where map[string]string) []Row {
 	out := []Row{}
 	for _, page := range t.btreePages {
 		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
-			cell, err := page.leafPage.readLeafCell(c, t.rowIdAliasColIndex)
+			cell, err := page.leafPage.readTableLeafCell(c, t.rowIdAliasColIndex)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
 			}
@@ -121,20 +123,25 @@ func (t *DBTable) rows(where map[string]string) []Row {
 	return out
 }
 
-type Row struct {
-	cell  *TableBTreeLeafPageCell
-	table *DBTable
-}
-
-func (r *Row) Column(columnIndex int) string {
-	if columnIndex == r.table.rowIdAliasColIndex {
-		return fmt.Sprintf("%d", r.cell.rowid)
+// Determine if given condition may use the index.
+func (t *DBTable) eligibleIndex(condition *map[string]string) (*DBIndex, string) {
+	if len(*condition) == 0 {
+		return nil, ""
 	}
-	return r.cell.fields[columnIndex].String()
+	for _, idx := range t.assocIndices {
+		// TODO: Should look for max length!
+		matched := (*idx).Match(condition)
+		if len(matched) > 0 {
+			// usable!
+			return idx, matched
+		}
+	}
+	//
+	return nil, ""
 }
 
 // Simple Equal comparison bruteforce!
-func (t *DBTable) applyFilter(condition *map[string]string, cell *TableBTreeLeafPageCell) bool {
+func (t *DBTable) applyFilter(condition *map[string]string, cell *TableBTreeLeafTablePageCell) bool {
 	if len(*condition) == 0 {
 		return true
 	}
