@@ -7,10 +7,13 @@ import (
 	"os"
 )
 
+const HEADER_SIZE = 100
+
+// The object the represent the whole file.
 type Db struct {
 	pageSize uint16
 	schemas  []*Schema // should be indices by type (e.g. indices, triggers, views).
-	tables   map[string]*Schema
+	tables   map[string]*DBTable
 	file     *os.File
 }
 
@@ -36,8 +39,8 @@ func NewDb(databaseFilePath string) (*Db, error) {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 
 	// Parse first page for items
-	pageContent := make([]byte, pageSize-100) // first page offset by 100
-	_, err = databaseFile.ReadAt(pageContent, 100)
+	pageContent := make([]byte, pageSize-HEADER_SIZE) // first page offset by 100
+	_, err = databaseFile.ReadAt(pageContent, HEADER_SIZE)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,9 +48,15 @@ func NewDb(databaseFilePath string) (*Db, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	schemas := make([]*Schema, len(btreePage.cellOffsets))
-	tables := map[string]*Schema{}
+	tables := map[string]*DBTable{}
+	db := Db{
+		pageSize: pageSize,
+		schemas:  schemas,
+		tables:   tables,
+		file:     databaseFile,
+	}
+
 	for row := range (*btreePage).cellOffsets {
 		cell, err := btreePage.readLeafCell(row, 0)
 		if err != nil {
@@ -56,17 +65,15 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		sch := NewSchema(cell)
 		schemas[row] = sch
 
-		if Table == sch.schemaType {
-			tables[sch.name] = sch
+		switch sch.schemaType {
+		case Table:
+			tables[sch.name] = NewDBTable(&db, sch)
+		case Index:
+			// do something here.
 		}
 	}
 
-	return &Db{
-		pageSize: pageSize,
-		schemas:  schemas,
-		tables:   tables,
-		file:     databaseFile,
-	}, nil
+	return &db, nil
 }
 
 // @param pageIndex = pageNo - 1

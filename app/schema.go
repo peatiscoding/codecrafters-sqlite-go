@@ -73,9 +73,9 @@ func NewSchema(cell *TableBTreeLeafPageCell) *Schema {
 	switch stmt.(type) {
 	case *sql.CreateTableStatement:
 		tableSpec = stmt.(*sql.CreateTableStatement)
-		fmt.Fprintf(os.Stderr, "[dbg] Spec: %d\n", len(tableSpec.Columns))
+		fmt.Fprintf(os.Stderr, "[dbg] Table Spec: %d columns\n", len(tableSpec.Columns))
 		for d, col := range tableSpec.Columns {
-			fmt.Fprintf(os.Stderr, "[dbg] COL= %s %v\n", col.Name.Name, col.Constraints)
+			fmt.Fprintf(os.Stderr, "[dbg]  └─COL= %s %v\n", col.Name.Name, col.Constraints)
 			if len(col.Constraints) > 0 && col.Constraints[0].String() == "PRIMARY KEY AUTOINCREMENT" {
 				rowIdAliasColIndex = d
 			}

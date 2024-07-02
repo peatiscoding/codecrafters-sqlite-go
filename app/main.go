@@ -24,8 +24,8 @@ func main() {
 	switch command {
 	case ".tables":
 		tableNames := make([]string, 0)
-		for _, schema := range db.tables {
-			tableNames = append(tableNames, schema.tblName)
+		for _, tbl := range db.tables {
+			tableNames = append(tableNames, tbl.schema.tblName)
 		}
 		sort.Strings(tableNames)
 		fmt.Printf("%s", strings.Join(tableNames, " "))
@@ -49,14 +49,11 @@ func main() {
 			selectStmt := stmt.(*sql.SelectStatement)
 			// perform the select
 			tableName := strings.Trim(selectStmt.Source.String(), "\"")
-			schema, ok := db.tables[tableName]
+			tbl, ok := db.tables[tableName]
 			if !ok {
 				log.Fatal(fmt.Sprintf("unknown table %s", tableName))
 				os.Exit(1)
 			}
-
-			// Read the whole page
-			tbl := NewDBTable(db, schema)
 
 			colNames := make([]string, len(selectStmt.Columns))
 			for c, column := range selectStmt.Columns {
@@ -82,7 +79,7 @@ func main() {
 				colIndices := make([]int, pending)
 				for j, cn := range colNames {
 					// fmt.Printf("Scanning for %s through %s %v\n", cn, col.Name.Name, colIndices)
-					colIndices[j], ok = schema.colIndexMap[cn]
+					colIndices[j], ok = tbl.schema.colIndexMap[cn]
 					if !ok {
 						log.Fatal(fmt.Sprintf("Unknown column %s to select", cn))
 						os.Exit(1)
@@ -102,7 +99,7 @@ func main() {
 				}
 			}
 		default:
-			log.Fatal(fmt.Sprintf("%s statement is not yet supported.", _sql))
+			log.Fatal(fmt.Sprintf("'%s' statement is not yet supported.", _sql))
 			os.Exit(1)
 		}
 	}
