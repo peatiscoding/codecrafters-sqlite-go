@@ -5,6 +5,8 @@ import (
 	"log"
 	"os"
 	"time"
+
+	"github.com/rqlite/sql"
 )
 
 type DBLeafPage struct {
@@ -15,7 +17,7 @@ type DBLeafPage struct {
 }
 
 // automatically traverse through all pages.
-func NewDbLeafPages(db *Db, pageNumber int64, maxRowId int64) []DBLeafPage {
+func newDbLeafPages(db *Db, pageNumber int64, maxRowId int64) []DBLeafPage {
 	pageIndex := pageNumber - 1
 	leafPage := db.readPage(pageIndex)
 	out := []DBLeafPage{}
@@ -33,10 +35,10 @@ func NewDbLeafPages(db *Db, pageNumber int64, maxRowId int64) []DBLeafPage {
 			log.Fatal("Failed to get associated interior cells")
 		}
 		for _, cell := range cells {
-			out = append(out, NewDbLeafPages(db, int64(cell.leftPageNumber), cell.rowid)...)
+			out = append(out, newDbLeafPages(db, int64(cell.leftPageNumber), cell.rowid)...)
 		}
 		// Handle interior page's header
-		out = append(out, NewDbLeafPages(db, int64(leafPage.header.rightMostPointer), 0)...)
+		out = append(out, newDbLeafPages(db, int64(leafPage.header.rightMostPointer), 0)...)
 	default:
 		log.Fatalf("Unsupported page type %#x", leafPage.header.pageType)
 	}
@@ -45,14 +47,28 @@ func NewDbLeafPages(db *Db, pageNumber int64, maxRowId int64) []DBLeafPage {
 
 // Abstraction table
 type DBTable struct {
-	schema     *Schema
-	db         *Db
-	btreePages []DBLeafPage
+	Schema
+	rowIdAliasColIndex int // -1 means no alias, otherwise colIndex that uses rowId instead.
+	colIndexMap        map[string]int
+	tableSpec          *sql.CreateTableStatement
+	db                 *Db
+	btreePages         []DBLeafPage
 }
 
-func NewDBTable(d *Db, s *Schema) *DBTable {
+func NewDBTable(db *Db, schema *Schema, tableSpec *sql.CreateTableStatement) *DBTable {
+	var colIndexMap = map[string]int{} // columnName ~> index
+	rowIdAliasColIndex := -1
+	fmt.Fprintf(os.Stderr, "[dbg] Table Spec: %s %d columns\n", tableSpec.Name.Name, len(tableSpec.Columns))
+	for d, col := range tableSpec.Columns {
+		fmt.Fprintf(os.Stderr, "[dbg]  └─COL= %s %v\n", col.Name.Name, col.Constraints)
+		if len(col.Constraints) > 0 && col.Constraints[0].String() == "PRIMARY KEY AUTOINCREMENT" {
+			rowIdAliasColIndex = d
+		}
+		colIndexMap[col.Name.Name] = d
+	}
+
 	// assert pageNumber > 0
-	leafPages := NewDbLeafPages(d, int64(s.rootPage), 0)
+	leafPages := newDbLeafPages(db, int64(schema.rootPage), 0)
 	// write debug information
 	// lastRowId := int64(0)
 	lastP := len(leafPages) - 1
@@ -72,9 +88,17 @@ func NewDBTable(d *Db, s *Schema) *DBTable {
 	fmt.Fprintf(os.Stderr, "[dbg] Elapsed time: %s\n", elapsed)
 
 	return &DBTable{
-		schema:     s,
-		db:         d,
-		btreePages: leafPages}
+		tableSpec:          tableSpec,
+		db:                 db,
+		btreePages:         leafPages,
+		rowIdAliasColIndex: rowIdAliasColIndex,
+		colIndexMap:        colIndexMap,
+		Schema:             *schema,
+	}
+}
+
+func (t *DBTable) Name() string {
+	return t.tableSpec.Name.Name
 }
 
 // Traverse all rows
@@ -82,14 +106,14 @@ func (t *DBTable) rows(where map[string]string) []Row {
 	out := []Row{}
 	for _, page := range t.btreePages {
 		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
-			cell, err := page.leafPage.readLeafCell(c, t.schema.rowIdAliasColIndex)
+			cell, err := page.leafPage.readLeafCell(c, t.rowIdAliasColIndex)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
 			}
-			if t.schema.applyFilter(&where, cell) == true {
+			if t.applyFilter(&where, cell) == true {
 				out = append(out, Row{
-					cell:   cell,
-					schema: t.schema,
+					cell:  cell,
+					table: t,
 				})
 			}
 		}
@@ -98,13 +122,28 @@ func (t *DBTable) rows(where map[string]string) []Row {
 }
 
 type Row struct {
-	cell   *TableBTreeLeafPageCell
-	schema *Schema
+	cell  *TableBTreeLeafPageCell
+	table *DBTable
 }
 
 func (r *Row) Column(columnIndex int) string {
-	if columnIndex == r.schema.rowIdAliasColIndex {
+	if columnIndex == r.table.rowIdAliasColIndex {
 		return fmt.Sprintf("%d", r.cell.rowid)
 	}
 	return r.cell.fields[columnIndex].String()
+}
+
+// Simple Equal comparison bruteforce!
+func (t *DBTable) applyFilter(condition *map[string]string, cell *TableBTreeLeafPageCell) bool {
+	if len(*condition) == 0 {
+		return true
+	}
+	for key, value := range *condition {
+		ci := t.colIndexMap[key]
+		str := cell.fields[ci].String()
+		if str != value {
+			return false
+		}
+	}
+	return true
 }

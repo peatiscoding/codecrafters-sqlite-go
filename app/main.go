@@ -25,7 +25,7 @@ func main() {
 	case ".tables":
 		tableNames := make([]string, 0)
 		for _, tbl := range db.tables {
-			tableNames = append(tableNames, tbl.schema.tblName)
+			tableNames = append(tableNames, tbl.Name())
 		}
 		sort.Strings(tableNames)
 		fmt.Printf("%s", strings.Join(tableNames, " "))
@@ -79,7 +79,7 @@ func main() {
 				colIndices := make([]int, pending)
 				for j, cn := range colNames {
 					// fmt.Printf("Scanning for %s through %s %v\n", cn, col.Name.Name, colIndices)
-					colIndices[j], ok = tbl.schema.colIndexMap[cn]
+					colIndices[j], ok = tbl.colIndexMap[cn]
 					if !ok {
 						log.Fatal(fmt.Sprintf("Unknown column %s to select", cn))
 						os.Exit(1)

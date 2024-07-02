@@ -3,8 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"log"
 	"os"
+	"strings"
+
+	"github.com/rqlite/sql"
 )
 
 const HEADER_SIZE = 100
@@ -65,11 +70,22 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		sch := NewSchema(cell)
 		schemas[row] = sch
 
-		switch sch.schemaType {
-		case Table:
-			tables[sch.name] = NewDBTable(&db, sch)
-		case Index:
-			// do something here.
+		// additional initialization beyond reading simple schema record.
+		stmt, err := sql.NewParser(strings.NewReader(sch.sql)).ParseStatement()
+		switch stmt.(type) {
+		case *sql.CreateTableStatement:
+			if sch.schemaType != Table {
+				return nil, errors.New(fmt.Sprintf("Invalid SQL statement: %s. Expected different SQL for %d type", sch.sql, sch.schemaType))
+			}
+			tableSpec := stmt.(*sql.CreateTableStatement)
+			tables[sch.name] = NewDBTable(&db, sch, tableSpec)
+		case *sql.CreateIndexStatement:
+			if sch.schemaType != Index {
+				return nil, errors.New(fmt.Sprintf("Invalid SQL statement: %s. Expected different SQL for %d type", sch.sql, sch.schemaType))
+			}
+			indexSpec := stmt.(*sql.CreateIndexStatement)
+			// Create new Index
+			NewDbIndex(&db, sch, indexSpec)
 		}
 	}
 
