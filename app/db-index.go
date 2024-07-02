@@ -142,6 +142,7 @@ func (i *DBIndex) CountRange(condition *map[string]string, conditionAsPrefix str
 			// skip these pages
 			continue
 		}
+		fmt.Fprintf(os.Stderr, "[dbg] comparing on page %s\n", page.maxIndexStrain)
 		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
 			cell, err := page.leafPage.readIndexLeafCell(c)
 			if err != nil {
@@ -149,6 +150,7 @@ func (i *DBIndex) CountRange(condition *map[string]string, conditionAsPrefix str
 			}
 			evalCount += 1
 			// TODO: This should ask assocTable to eval `condition` NOT using conditionAsPrefix.
+			fmt.Fprintf(os.Stderr, "[dbg] comparing %s / %s\n", conditionAsPrefix, cell.indexStrain)
 			if strings.HasPrefix(cell.indexStrain, conditionAsPrefix) {
 				out += 1
 			}

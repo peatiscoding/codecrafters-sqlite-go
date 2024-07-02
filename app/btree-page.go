@@ -99,6 +99,21 @@ func (f *TableBTreeLeafPageCellField) String() string {
 }
 
 func (f *TableBTreeLeafPageCellField) Integer() int64 {
+	// This code would be easier for compiler to optimize?
+	switch f.serialType {
+	case I8:
+		return int64(f.data[0]) // size = 1 byte
+	case I16:
+		return int64(f.data[0])<<8 | int64(f.data[1]) // size = 2 bytes
+	case I24:
+		return int64(f.data[0])<<16 | int64(f.data[1])<<8 | int64(f.data[2]) // size = 3 bytes
+	case I32:
+		return int64(f.data[0])<<24 | int64(f.data[1])<<16 | int64(f.data[2])<<8 | int64(f.data[3]) // size = 4 bytes
+	case I48:
+		return int64(f.data[0])<<40 | int64(f.data[1])<<32 | int64(f.data[2])<<24 | int64(f.data[3])<<16 | int64(f.data[4])<<8 | int64(f.data[5]) // size = 6 bytes
+	case I64:
+		return int64(f.data[0])<<56 | int64(f.data[1])<<48 | int64(f.data[2])<<40 | int64(f.data[3])<<32 | int64(f.data[4])<<24 | int64(f.data[5])<<16 | int64(f.data[6])<<8 | int64(f.data[7]) // size = 8 bytes
+	}
 	var i64 = int64(0)
 	reader := bytes.NewReader(f.data)
 	binary.Read(reader, binary.BigEndian, &i64)
@@ -201,7 +216,10 @@ func (p *TableBTreePage) readIndexLeafCell(cellIndex int) (*TableBTreeLeafIndexP
 		return nil, err
 	}
 	var b strings.Builder
-	for _, cnt := range content {
+	for c, cnt := range content {
+		if c > 0 {
+			b.WriteString("|")
+		}
 		b.WriteString(cnt.String())
 		// b.WriteString(fmt.Sprintf("(%d|%d=%s", d, cnt.serialType, cnt.String()))
 	}
