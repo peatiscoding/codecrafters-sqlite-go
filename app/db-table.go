@@ -86,7 +86,7 @@ func walkThroughBTreeForRowId(db *Db, pageNumber int64, pad *_SearchList) error 
 			if pad.current() > cell.rowid {
 				continue
 			}
-			fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %d vs %d (jump=%d)\n", pageNumber, pad.current(), cell.rowid, cell.leftPageNumber)
+			// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %d vs %d (jump=%d)\n", pageNumber, pad.current(), cell.rowid, cell.leftPageNumber)
 			err = walkThroughBTreeForRowId(db, int64(cell.leftPageNumber), pad)
 			if err != nil {
 				return err
