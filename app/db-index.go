@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -16,42 +15,6 @@ type DBIndex struct {
 	assocTable    string // associated table that utilize this index.
 	indexSpec     *sql.CreateIndexStatement
 	colIndexOrder []string
-	leafPages     []_IndexLeafPage // Leaf page map for fast jump to specific pages
-}
-
-type _IndexLeafPage struct {
-	maxIndexStrain string // "" means the last one.
-	rowsCount      int
-	pageIndex      uint32
-	leafPage       *TableBTreePage // may or may not loaded. (lazy)
-}
-
-func _walkIndexLeafPages(db *Db, pageNumber int64, maxIndexStrain string) []_IndexLeafPage {
-	pageIndex := pageNumber - 1
-	leafPage := db.readPage(pageIndex)
-	out := []_IndexLeafPage{}
-	switch leafPage.header.pageType {
-	case LeafIndex:
-		return append(out, _IndexLeafPage{
-			maxIndexStrain: maxIndexStrain,
-			pageIndex:      uint32(pageIndex),
-			rowsCount:      int(len(leafPage.cellOffsets)),
-			leafPage:       leafPage,
-		})
-	case InteriorIndex:
-		cells, err := leafPage.readAllIndexInteriorCells()
-		if err != nil {
-			log.Fatal("Failed to get associated interior cells")
-		}
-		for _, cell := range cells {
-			out = append(out, _walkIndexLeafPages(db, int64(cell.leftPageNumber), cell.maxIndexStrain)...)
-		}
-		// Handle interior page's header
-		out = append(out, _walkIndexLeafPages(db, int64(leafPage.header.rightMostPointer), "")...)
-	default:
-		log.Fatalf("(walkIndexLeafPage) Unsupported page type %#x", leafPage.header.pageType)
-	}
-	return out
 }
 
 func walkThroughIndexBTreeForRowIds(db *Db, pageNumber int64, conditionValueAsPrefix string, out *[]IndexPayload) error {
