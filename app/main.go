@@ -74,9 +74,9 @@ func main() {
 				// Read values from all cells per such column index
 				count := 0
 				if eligibleIndex != nil {
-					count = eligibleIndex.CountRange(&where, matchedPrefix)
+					count = len(eligibleIndex.IndexScan(&where, matchedPrefix))
 				} else {
-					count = len(tbl.rows(where))
+					count = len(tbl.rows(where, nil, ""))
 				}
 				fmt.Printf("%d\n", count)
 			} else {
@@ -93,7 +93,7 @@ func main() {
 				}
 
 				// Read values from all cells per such column index
-				for _, row := range tbl.rows(where) {
+				for _, row := range tbl.rows(where, eligibleIndex, matchedPrefix) {
 					// Print output
 					for v, ci := range colIndices {
 						if v != 0 {

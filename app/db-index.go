@@ -54,6 +54,59 @@ func _walkIndexLeafPages(db *Db, pageNumber int64, maxIndexStrain string) []_Ind
 	return out
 }
 
+func walkThroughIndexBTreeForRowIds(db *Db, pageNumber int64, conditionValueAsPrefix string, out *[]IndexPayload) error {
+	pageIndex := pageNumber - 1
+	page := db.readPage(pageIndex)
+	switch page.header.pageType {
+	case LeafIndex:
+		// Perform Full Table Scan
+		for cellIndex := 0; cellIndex < len(page.cellOffsets); cellIndex++ {
+			cell, err := page.readIndexLeafCell(cellIndex)
+			if err != nil {
+				return err
+			}
+			// Eval condition
+			// fmt.Fprintf(os.Stderr, "[dbg] Eval on leaf page %d: %s vs %s (result=%d)\n", pageNumber, conditionValueAsPrefix, cell.indexStrain, len(*out))
+			if strings.HasPrefix(cell.indexStrain, conditionValueAsPrefix) {
+				*out = append(*out, cell)
+			} else if cell.indexStrain > conditionValueAsPrefix {
+				// nothing to search for anymore.
+				return nil
+			}
+		}
+	case InteriorIndex:
+		// this should recusrively call walk method with nested page. (And append the result)
+		// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d firstCell= %d lastCell= %d\n", pageNumber, firstCell.rowid, lastCell.rowid)
+		// scan through the ranges
+		for j := 0; j < len(page.cellOffsets); j++ {
+			cellOffset := page.cellOffsets[j]
+			cell, err := page.readIndexInteriorCell(cellOffset)
+			if err != nil {
+				return err
+			}
+			if conditionValueAsPrefix > cell.maxIndexStrain {
+				// nothing to process on this page.
+				continue
+			}
+			// Interior also holds part of index.
+			if strings.HasPrefix(cell.maxIndexStrain, conditionValueAsPrefix) {
+				*out = append(*out, cell)
+			}
+			// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %s vs %s (jump=%d)\n", pageNumber, conditionValueAsPrefix, cell.maxIndexStrain, cell.leftPageNumber)
+			err = walkThroughIndexBTreeForRowIds(db, int64(cell.leftPageNumber), conditionValueAsPrefix, out)
+			if err != nil {
+				return err
+			}
+		}
+		// also go through the last wing
+		err := walkThroughIndexBTreeForRowIds(db, int64(page.header.rightMostPointer), conditionValueAsPrefix, out)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func NewDbIndex(db *Db, schema *Schema, indexSpec *sql.CreateIndexStatement) *DBIndex {
 	var colIndexOrder = []string{}
 	fmt.Fprintf(os.Stderr, "[dbg] Index Spec: %s (page=%d) %d columns for %s\n", indexSpec.Name.Name, schema.rootPage, len(indexSpec.Columns), indexSpec.Table.Name)
@@ -112,53 +165,19 @@ func (i *DBIndex) Match(condition *map[string]string) string {
 
 // Query from index
 // @param - the value returned from Match()
-func (i *DBIndex) SelectRange(condition *map[string]string, conditionAsPrefix string) []Row {
-	out := []Row{}
-	// assocTable := i.db.tables[i.assocTable]
-	for _, page := range i.leafPages {
-		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
-			cell, err := page.leafPage.readIndexLeafCell(c)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
-			}
-
-			if strings.HasPrefix(cell.indexStrain, conditionAsPrefix) {
-				// out = append(out, Row{
-				// 	cell:  cell,
-				// 	table: assocTable,
-				// })
-			}
-		}
-	}
-	return out
-}
-
-func (i *DBIndex) CountRange(condition *map[string]string, conditionAsPrefix string) int {
-	out := 0
+func (i *DBIndex) IndexScan(condition *map[string]string, conditionAsPrefix string) []int64 {
 	start := time.Now()
-	evalCount := 0
-	// FIXME: Should start from Interior and walk down?
-	for _, page := range i.leafPages {
-		if !strings.HasPrefix(page.maxIndexStrain, conditionAsPrefix) {
-			// skip these pages
-			continue
-		}
-		fmt.Fprintf(os.Stderr, "[dbg] comparing on page %s\n", page.maxIndexStrain)
-		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
-			idxCell, err := page.leafPage.readIndexLeafCell(c)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
-			}
-			evalCount += 1
-			// TODO: Here it should be able to select specific rowid from the table?
-			fmt.Fprintf(os.Stderr, "[dbg] comparing %s / %s\n", conditionAsPrefix, idxCell.indexStrain)
-			// TODO: This should ask assocTable to eval `condition` NOT using conditionAsPrefix.
-			if strings.HasPrefix(idxCell.indexStrain, conditionAsPrefix) {
-				out += 1
-			}
-		}
+	result := []IndexPayload{}
+	err := walkThroughIndexBTreeForRowIds(i.db, int64(i.rootPage), conditionAsPrefix, &result)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[dbg] IndexScan failed: %s\n", err.Error())
+	}
+	columnForPk := len(i.colIndexOrder)
+	rowIds := make([]int64, len(result))
+	for i := 0; i < len(result); i++ {
+		rowIds[i] = result[i].Fields()[columnForPk].Integer()
 	}
 	elapsed := time.Since(start)
-	fmt.Fprintf(os.Stderr, "[dbg] SelectCount prefix=%s evaled items_count=%d Elapsed time: %s\n", conditionAsPrefix, evalCount, elapsed)
-	return out
+	fmt.Fprintf(os.Stderr, "[dbg] IndexScan prefix=%s -> matched %d rowids (%v). Done in %s\n", conditionAsPrefix, len(rowIds), rowIds, elapsed)
+	return rowIds
 }

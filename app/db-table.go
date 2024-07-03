@@ -95,6 +95,10 @@ func walkThroughBTreeForRowId(db *Db, pageNumber int64, pad *_SearchList) error 
 				return nil
 			}
 		}
+		err := walkThroughBTreeForRowId(db, int64(page.header.rightMostPointer), pad)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -187,8 +191,9 @@ func (t *DBTable) Name() string {
 }
 
 // Traverse all rows
-func (t *DBTable) rows(where map[string]string) []Row {
+func (t *DBTable) rows(where map[string]string, eligibleIndex *DBIndex, conditionAsPrefix string) []Row {
 	out := []Row{}
+	// using primary key to walk.
 	if cond, ok := where["id"]; ok == true {
 		// use selectByRowId
 		fmt.Fprintf(os.Stderr, "[dbg] Selecting id= %s\n", cond)
@@ -201,15 +206,30 @@ func (t *DBTable) rows(where map[string]string) []Row {
 			}
 			rowIds[c] = x
 		}
-		found, err := t.selectByRowId(rowIds)
+		found, err := t.SelectRowsByIds(rowIds)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
 		}
 		if found != nil {
+			// TODO: filter based on where condition.. (without id checks)
 			out = append(out, found...)
 			return out
 		}
 	}
+	// Otherwise try using eligibleIndex first.
+	if eligibleIndex != nil {
+		rowIds := eligibleIndex.IndexScan(&where, conditionAsPrefix)
+		found, err := t.SelectRowsByIds(rowIds)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
+		}
+		if found != nil {
+			// TODO: filter based on where condition.. (without id checks)
+			return found
+		}
+	}
+
+	// Using Full Table Scan
 	for _, page := range t.btreePages {
 		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
 			cell, err := page.leafPage.readTableLeafCell(c, t.rowIdAliasColIndex)
@@ -246,7 +266,7 @@ func (t *DBTable) eligibleIndex(condition *map[string]string) (*DBIndex, string)
 
 // Table
 // TODO: Walk to correct page; Then move to correct rowId
-func (t *DBTable) selectByRowId(rowIds []int64) ([]Row, error) {
+func (t *DBTable) SelectRowsByIds(rowIds []int64) ([]Row, error) {
 	start := time.Now()
 	out := []Row{}
 	sl := NewSearchList(rowIds)
@@ -263,7 +283,7 @@ func (t *DBTable) selectByRowId(rowIds []int64) ([]Row, error) {
 		}
 	}
 	elapsed := time.Since(start)
-	fmt.Fprintf(os.Stderr, "[dbg] search for rowid Elapsed time: %s\n", elapsed)
+	fmt.Fprintf(os.Stderr, "[dbg] search for %d rowid Elapsed time: %s\n", len(rowIds), elapsed)
 	return out, nil
 }
 

@@ -62,6 +62,10 @@ type TableBTreeLeafTablePageCell struct {
 	overflowPage int32
 }
 
+type IndexPayload interface {
+	Fields() []TableBTreeLeafPageCellField
+}
+
 type TableBTreeLeafIndexPageCell struct {
 	payloadSize  int64
 	fields       []TableBTreeLeafPageCellField
@@ -80,6 +84,14 @@ type TableBTreeIndexInteriorPageCell struct {
 	fields         []TableBTreeLeafPageCellField
 	leftPageNumber uint32
 	overflowPage   int32
+}
+
+func (iipc *TableBTreeIndexInteriorPageCell) Fields() []TableBTreeLeafPageCellField {
+	return iipc.fields
+}
+
+func (iipc *TableBTreeLeafIndexPageCell) Fields() []TableBTreeLeafPageCellField {
+	return iipc.fields
 }
 
 func (f *TableBTreeLeafPageCellField) String() string {
@@ -247,6 +259,9 @@ func (p *TableBTreePage) readAllTableInteriorCells() ([]TableBTreeInteriorPageCe
 	return res, nil
 }
 
+// this consider as a Single Row. (in TableInteriorPage))
+// * A 4-byte big-endian page number which is the left child pointer.
+// * A varint which is the integer key
 func (p *TableBTreePage) readTableInteriorCell(cellOffset int) (*TableBTreeInteriorPageCell, error) {
 	var i32 = uint32(0) // 4 bytes
 	i32Reader := bytes.NewReader(p.pageContent[cellOffset : cellOffset+4])
@@ -271,34 +286,49 @@ func (p *TableBTreePage) readTableInteriorCell(cellOffset int) (*TableBTreeInter
 func (p *TableBTreePage) readAllIndexInteriorCells() ([]TableBTreeIndexInteriorPageCell, error) {
 	res := make([]TableBTreeIndexInteriorPageCell, len(p.cellOffsets))
 	for j, cellOffset := range p.cellOffsets {
-
-		// pageNumber of Left Child
-		var leftPageNumber = uint32(0) // 4 bytes
-		i32Reader := bytes.NewReader(p.pageContent[cellOffset : cellOffset+4])
-		binary.Read(i32Reader, binary.BigEndian, &leftPageNumber)
-
-		// total bytes
-		reader := bytes.NewReader(p.pageContent[cellOffset+4:])
-		payloadSize, _, err := ReadVarint(reader)
+		o, err := p.readIndexInteriorCell(cellOffset)
 		if err != nil {
 			return nil, err
 		}
-		// read payloads based on Payload Size
-		content, err := parseCellRecordFormat(reader, payloadSize)
-		var b strings.Builder
-		for _, cnt := range content {
-			b.WriteString(cnt.String())
-			// b.WriteString(fmt.Sprintf("(%d|%d=%s", d, cnt.serialType, cnt.String()))
-		}
-		res[j] = TableBTreeIndexInteriorPageCell{
-			leftPageNumber: leftPageNumber,
-			fields:         content,
-			payloadSize:    payloadSize,
-			maxIndexStrain: b.String(),
-			overflowPage:   0,
-		}
+		res[j] = *o
 	}
 	return res, nil
+}
+
+// Read single Cell (RecordFormat)
+// - A 4-byte big-endian page number which is the left child pointer.
+// - A varint which is the total number of bytes of key payload, including any overflow
+// - The initial portion of the payload that does not spill to overflow pages.
+// - A 4-byte big-endian integer page number for the first page of the overflow page list - omitted if all payload fits on the b-tree page. (FIXME)
+func (p *TableBTreePage) readIndexInteriorCell(cellOffset int16) (*TableBTreeIndexInteriorPageCell, error) {
+	// pageNumber of Left Child
+	var leftPageNumber = uint32(0) // 4 bytes
+	i32Reader := bytes.NewReader(p.pageContent[cellOffset : cellOffset+4])
+	binary.Read(i32Reader, binary.BigEndian, &leftPageNumber)
+
+	// total bytes
+	reader := bytes.NewReader(p.pageContent[cellOffset+4:])
+	payloadSize, _, err := ReadVarint(reader)
+	if err != nil {
+		return nil, err
+	}
+	// read payloads based on Payload Size
+	content, err := parseCellRecordFormat(reader, payloadSize)
+	var b strings.Builder
+	for c, cnt := range content {
+		if c > 0 {
+			b.WriteString("|")
+		}
+		b.WriteString(cnt.String())
+		// b.WriteString(fmt.Sprintf("(%d|%d=%s", d, cnt.serialType, cnt.String()))
+	}
+	return &TableBTreeIndexInteriorPageCell{
+		leftPageNumber: leftPageNumber,
+		fields:         content,
+		payloadSize:    payloadSize,
+		maxIndexStrain: b.String(),
+		overflowPage:   0,
+	}, nil
 }
 
 func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, error) {
