@@ -16,11 +16,12 @@ const HEADER_SIZE = 100
 
 // The object the represent the whole file.
 type Db struct {
-	pageSize uint16
-	schemas  []*Schema // should be indices by type (e.g. indices, triggers, views).
-	tables   map[string]*DBTable
-	indices  []*DBIndex
-	file     *os.File
+	pageSize  uint16
+	schemas   []*Schema // should be indices by type (e.g. indices, triggers, views).
+	tables    map[string]*DBTable
+	indices   []*DBIndex
+	file      *os.File
+	pageCache map[int64]*TableBTreePage // a chunk of memory to store the page object (contains only headers)
 }
 
 func NewDb(databaseFilePath string) (*Db, error) {
@@ -55,12 +56,14 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		log.Fatal(err)
 	}
 	schemas := make([]*Schema, len(btreePage.cellOffsets))
+	pageCache := map[int64]*TableBTreePage{}
 	tables := map[string]*DBTable{}
 	db := Db{
-		pageSize: pageSize,
-		schemas:  schemas,
-		tables:   tables,
-		file:     databaseFile,
+		pageSize:  pageSize,
+		schemas:   schemas,
+		tables:    tables,
+		file:      databaseFile,
+		pageCache: pageCache,
 	}
 
 	for row := range (*btreePage).cellOffsets {
@@ -100,6 +103,10 @@ func NewDb(databaseFilePath string) (*Db, error) {
 
 // @param pageIndex = pageNo - 1
 func (d *Db) readPage(pageIndex int64) *TableBTreePage {
+	cached, ok := d.pageCache[pageIndex]
+	if ok {
+		return cached
+	}
 	// assert pageNumber > 0
 	pageContent := make([]byte, d.pageSize)
 	_, err := d.file.ReadAt(pageContent, int64(d.pageSize)*pageIndex)
@@ -111,6 +118,7 @@ func (d *Db) readPage(pageIndex int64) *TableBTreePage {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// number of cells
+	// cache it.
+	d.pageCache[pageIndex] = btreePage
 	return btreePage
 }
