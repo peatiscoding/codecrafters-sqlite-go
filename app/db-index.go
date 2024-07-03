@@ -137,6 +137,7 @@ func (i *DBIndex) CountRange(condition *map[string]string, conditionAsPrefix str
 	out := 0
 	start := time.Now()
 	evalCount := 0
+	// FIXME: Should start from Interior and walk down?
 	for _, page := range i.leafPages {
 		if !strings.HasPrefix(page.maxIndexStrain, conditionAsPrefix) {
 			// skip these pages
@@ -144,14 +145,15 @@ func (i *DBIndex) CountRange(condition *map[string]string, conditionAsPrefix str
 		}
 		fmt.Fprintf(os.Stderr, "[dbg] comparing on page %s\n", page.maxIndexStrain)
 		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
-			cell, err := page.leafPage.readIndexLeafCell(c)
+			idxCell, err := page.leafPage.readIndexLeafCell(c)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
 			}
 			evalCount += 1
+			// TODO: Here it should be able to select specific rowid from the table?
+			fmt.Fprintf(os.Stderr, "[dbg] comparing %s / %s\n", conditionAsPrefix, idxCell.indexStrain)
 			// TODO: This should ask assocTable to eval `condition` NOT using conditionAsPrefix.
-			fmt.Fprintf(os.Stderr, "[dbg] comparing %s / %s\n", conditionAsPrefix, cell.indexStrain)
-			if strings.HasPrefix(cell.indexStrain, conditionAsPrefix) {
+			if strings.HasPrefix(idxCell.indexStrain, conditionAsPrefix) {
 				out += 1
 			}
 		}

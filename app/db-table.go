@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/rqlite/sql"
@@ -14,6 +16,82 @@ type _DBLeafPage struct {
 	rowsCount int
 	pageIndex uint32
 	leafPage  *TableBTreePage // may or may not loaded. (lazy)
+}
+
+func walkThroughBTreeForRowId(db *Db, pageNumber int64, rowId int64) (*TableBTreeLeafTablePageCell, error) {
+	pageIndex := pageNumber - 1
+	// out := []TableBTreeLeafTablePageCell{}
+	page := db.readPage(pageIndex)
+	switch page.header.pageType {
+	case LeafTable:
+		// Perform Full Table Scan
+		for cellIndex := 0; cellIndex < len(page.cellOffsets); cellIndex++ {
+			cell, err := page.readTableLeafCell(cellIndex, 0)
+			if err != nil {
+				return nil, err
+			}
+			// Eval condition
+			if cell.rowid == rowId {
+				return cell, nil
+			}
+		}
+	case InteriorTable:
+		// this should recusrively call walk method with nested page. (And append the result)
+		count := len(page.cellOffsets)
+		firstCellOffset := page.cellOffsets[0]
+		lastCellOffset := page.cellOffsets[count-1]
+		firstCell, err := page.readTableInteriorCell(int(firstCellOffset))
+		if err != nil {
+			return nil, err
+		}
+		lastCell, err := page.readTableInteriorCell(int(lastCellOffset))
+		if err != nil {
+			return nil, err
+		}
+		// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d firstCell= %d lastCell= %d\n", pageNumber, firstCell.rowid, lastCell.rowid)
+		if rowId <= firstCell.rowid {
+			// go into first page
+			leafCell, err := walkThroughBTreeForRowId(db, int64(firstCell.leftPageNumber), rowId)
+			if err != nil {
+				return nil, err
+			}
+			if leafCell != nil {
+				return leafCell, nil
+			}
+			return nil, nil
+		} else if rowId > lastCell.rowid {
+			// go to right most cell
+			leafCell, err := walkThroughBTreeForRowId(db, int64(page.header.rightMostPointer), rowId)
+			if err != nil {
+				return nil, err
+			}
+			if leafCell != nil {
+				return leafCell, nil
+			}
+			return nil, nil
+		} else {
+			// scan through the ranges
+			for j := 1; j < len(page.cellOffsets); j++ {
+				cellOffset := page.cellOffsets[j]
+				cell, err := page.readTableInteriorCell(int(cellOffset))
+				if err != nil {
+					return nil, err
+				}
+				if rowId > cell.rowid {
+					continue
+				}
+				// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %d vs %d\n", pageNumber, rowId, cell.rowid)
+				leafCell, err := walkThroughBTreeForRowId(db, int64(cell.leftPageNumber), rowId)
+				if err != nil {
+					return nil, err
+				}
+				if leafCell != nil {
+					return leafCell, nil
+				}
+			}
+		}
+	}
+	return nil, nil
 }
 
 // automatically traverse through all pages.
@@ -106,6 +184,22 @@ func (t *DBTable) Name() string {
 // Traverse all rows
 func (t *DBTable) rows(where map[string]string) []Row {
 	out := []Row{}
+	if cond, ok := where["id"]; ok == true {
+		// use selectByRowId
+		fmt.Fprintf(os.Stderr, "[dbg] Selecting id= %s\n", cond)
+		rowId, err := strconv.ParseInt(cond, 10, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
+		}
+		found, err := t.selectByRowId([]int64{rowId})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
+		}
+		if found != nil {
+			out = append(out, found...)
+			return out
+		}
+	}
 	for _, page := range t.btreePages {
 		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
 			cell, err := page.leafPage.readTableLeafCell(c, t.rowIdAliasColIndex)
@@ -138,6 +232,27 @@ func (t *DBTable) eligibleIndex(condition *map[string]string) (*DBIndex, string)
 	}
 	//
 	return nil, ""
+}
+
+// Table
+// TODO: Walk to correct page; Then move to correct rowId
+func (t *DBTable) selectByRowId(rowIds []int64) ([]Row, error) {
+	out := make([]Row, len(rowIds))
+	for i := 0; i < len(rowIds); i++ {
+		rowId := rowIds[i]
+		cell, err := walkThroughBTreeForRowId(t.db, int64(t.rootPage), rowId)
+		if err != nil {
+			return nil, err
+		}
+		if cell != nil {
+			out[i] = Row{
+				cell:  cell,
+				table: t,
+			}
+			return out, nil
+		}
+	}
+	return nil, errors.New(fmt.Sprintf("No record found %v", rowIds))
 }
 
 // Simple Equal comparison bruteforce!

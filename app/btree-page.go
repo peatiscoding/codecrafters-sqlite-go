@@ -238,22 +238,29 @@ func (p *TableBTreePage) readIndexLeafCell(cellIndex int) (*TableBTreeLeafIndexP
 func (p *TableBTreePage) readAllTableInteriorCells() ([]TableBTreeInteriorPageCell, error) {
 	res := make([]TableBTreeInteriorPageCell, len(p.cellOffsets))
 	for j, cellOffset := range p.cellOffsets {
-
-		var i32 = uint32(0) // 4 bytes
-		i32Reader := bytes.NewReader(p.pageContent[cellOffset : cellOffset+4])
-		binary.Read(i32Reader, binary.BigEndian, &i32)
-
-		reader := bytes.NewReader(p.pageContent[cellOffset+4:])
-		rowid, _, err := ReadVarint(reader)
+		cell, err := p.readTableInteriorCell(int(cellOffset))
 		if err != nil {
 			return nil, err
 		}
-		res[j] = TableBTreeInteriorPageCell{
-			rowid:          rowid,
-			leftPageNumber: i32,
-		}
+		res[j] = *cell
 	}
 	return res, nil
+}
+
+func (p *TableBTreePage) readTableInteriorCell(cellOffset int) (*TableBTreeInteriorPageCell, error) {
+	var i32 = uint32(0) // 4 bytes
+	i32Reader := bytes.NewReader(p.pageContent[cellOffset : cellOffset+4])
+	binary.Read(i32Reader, binary.BigEndian, &i32)
+
+	reader := bytes.NewReader(p.pageContent[cellOffset+4:])
+	rowid, _, err := ReadVarint(reader)
+	if err != nil {
+		return nil, err
+	}
+	return &TableBTreeInteriorPageCell{
+		rowid:          rowid,
+		leftPageNumber: i32,
+	}, nil
 }
 
 // Each Cell (RecordFormat)
