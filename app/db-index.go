@@ -49,7 +49,7 @@ func _walkIndexLeafPages(db *Db, pageNumber int64, maxIndexStrain string) []_Ind
 		// Handle interior page's header
 		out = append(out, _walkIndexLeafPages(db, int64(leafPage.header.rightMostPointer), "")...)
 	default:
-		log.Fatalf("Unsupported page type %#x", leafPage.header.pageType)
+		log.Fatalf("(walkIndexLeafPage) Unsupported page type %#x", leafPage.header.pageType)
 	}
 	return out
 }
@@ -118,7 +118,7 @@ func NewDbIndex(db *Db, schema *Schema, indexSpec *sql.CreateIndexStatement) *DB
 	forTable := indexSpec.Table.Name
 
 	// Parse the whole index?
-	pages := _walkIndexLeafPages(db, int64(schema.rootPage), "")
+	// pages := _walkIndexLeafPages(db, int64(schema.rootPage), "")
 
 	// // Print Debug information
 	// for p := 0; p < len(pages)-1; p++ {
@@ -134,7 +134,6 @@ func NewDbIndex(db *Db, schema *Schema, indexSpec *sql.CreateIndexStatement) *DB
 		colIndexOrder: colIndexOrder,
 		Schema:        *schema,
 		assocTable:    forTable,
-		leafPages:     pages,
 	}
 }
 
