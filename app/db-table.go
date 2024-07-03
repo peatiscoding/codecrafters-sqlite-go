@@ -1,11 +1,12 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rqlite/sql"
@@ -18,7 +19,42 @@ type _DBLeafPage struct {
 	leafPage  *TableBTreePage // may or may not loaded. (lazy)
 }
 
-func walkThroughBTreeForRowId(db *Db, pageNumber int64, rowId int64) (*TableBTreeLeafTablePageCell, error) {
+// Convert this to Generic?
+type _SearchList struct {
+	currentIndex int
+	sortedRowIds []int64
+	result       []*TableBTreeLeafTablePageCell
+}
+
+func NewSearchList(rowIds []int64) *_SearchList {
+	// Asecending Order
+	sort.Slice(rowIds, func(i, j int) bool {
+		return rowIds[i] < rowIds[j]
+	})
+	return &_SearchList{
+		currentIndex: 0,
+		sortedRowIds: rowIds,
+		result:       make([]*TableBTreeLeafTablePageCell, len(rowIds)),
+	}
+}
+
+// the lease rowIds (lease value to search for)
+func (s *_SearchList) current() int64 {
+	return s.sortedRowIds[s.currentIndex]
+}
+
+// move next, and check if it is already finished.
+func (s *_SearchList) matched(r *TableBTreeLeafTablePageCell) bool {
+	s.result[s.currentIndex] = r
+	s.currentIndex++
+	return s.hasMore()
+}
+
+func (s *_SearchList) hasMore() bool {
+	return s.currentIndex == len(s.sortedRowIds)
+}
+
+func walkThroughBTreeForRowId(db *Db, pageNumber int64, pad *_SearchList) error {
 	pageIndex := pageNumber - 1
 	// out := []TableBTreeLeafTablePageCell{}
 	page := db.readPage(pageIndex)
@@ -28,70 +64,39 @@ func walkThroughBTreeForRowId(db *Db, pageNumber int64, rowId int64) (*TableBTre
 		for cellIndex := 0; cellIndex < len(page.cellOffsets); cellIndex++ {
 			cell, err := page.readTableLeafCell(cellIndex, 0)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			// Eval condition
-			if cell.rowid == rowId {
-				return cell, nil
+			if cell.rowid == pad.current() {
+				if pad.matched(cell) {
+					return nil
+				}
 			}
 		}
 	case InteriorTable:
 		// this should recusrively call walk method with nested page. (And append the result)
-		count := len(page.cellOffsets)
-		firstCellOffset := page.cellOffsets[0]
-		lastCellOffset := page.cellOffsets[count-1]
-		firstCell, err := page.readTableInteriorCell(int(firstCellOffset))
-		if err != nil {
-			return nil, err
-		}
-		lastCell, err := page.readTableInteriorCell(int(lastCellOffset))
-		if err != nil {
-			return nil, err
-		}
 		// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d firstCell= %d lastCell= %d\n", pageNumber, firstCell.rowid, lastCell.rowid)
-		if rowId <= firstCell.rowid {
-			// go into first page
-			leafCell, err := walkThroughBTreeForRowId(db, int64(firstCell.leftPageNumber), rowId)
+		// scan through the ranges
+		for j := 0; j < len(page.cellOffsets); j++ {
+			cellOffset := page.cellOffsets[j]
+			cell, err := page.readTableInteriorCell(int(cellOffset))
 			if err != nil {
-				return nil, err
+				return err
 			}
-			if leafCell != nil {
-				return leafCell, nil
+			if pad.current() > cell.rowid {
+				continue
 			}
-			return nil, nil
-		} else if rowId > lastCell.rowid {
-			// go to right most cell
-			leafCell, err := walkThroughBTreeForRowId(db, int64(page.header.rightMostPointer), rowId)
+			fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %d vs %d (jump=%d)\n", pageNumber, pad.current(), cell.rowid, cell.leftPageNumber)
+			err = walkThroughBTreeForRowId(db, int64(cell.leftPageNumber), pad)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			if leafCell != nil {
-				return leafCell, nil
-			}
-			return nil, nil
-		} else {
-			// scan through the ranges
-			for j := 1; j < len(page.cellOffsets); j++ {
-				cellOffset := page.cellOffsets[j]
-				cell, err := page.readTableInteriorCell(int(cellOffset))
-				if err != nil {
-					return nil, err
-				}
-				if rowId > cell.rowid {
-					continue
-				}
-				// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %d vs %d\n", pageNumber, rowId, cell.rowid)
-				leafCell, err := walkThroughBTreeForRowId(db, int64(cell.leftPageNumber), rowId)
-				if err != nil {
-					return nil, err
-				}
-				if leafCell != nil {
-					return leafCell, nil
-				}
+			if pad.hasMore() {
+				return nil
 			}
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 // automatically traverse through all pages.
@@ -187,11 +192,16 @@ func (t *DBTable) rows(where map[string]string) []Row {
 	if cond, ok := where["id"]; ok == true {
 		// use selectByRowId
 		fmt.Fprintf(os.Stderr, "[dbg] Selecting id= %s\n", cond)
-		rowId, err := strconv.ParseInt(cond, 10, 64)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
+		condValues := strings.Split(cond, ",")
+		rowIds := make([]int64, len(condValues))
+		for c, clause := range condValues {
+			x, err := strconv.ParseInt(strings.Trim(clause, "' "), 10, 64)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[dbg] parse clause failed: %s\n", err.Error())
+			}
+			rowIds[c] = x
 		}
-		found, err := t.selectByRowId([]int64{rowId})
+		found, err := t.selectByRowId(rowIds)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
 		}
@@ -237,22 +247,24 @@ func (t *DBTable) eligibleIndex(condition *map[string]string) (*DBIndex, string)
 // Table
 // TODO: Walk to correct page; Then move to correct rowId
 func (t *DBTable) selectByRowId(rowIds []int64) ([]Row, error) {
-	out := make([]Row, len(rowIds))
-	for i := 0; i < len(rowIds); i++ {
-		rowId := rowIds[i]
-		cell, err := walkThroughBTreeForRowId(t.db, int64(t.rootPage), rowId)
-		if err != nil {
-			return nil, err
-		}
+	start := time.Now()
+	out := []Row{}
+	sl := NewSearchList(rowIds)
+	err := walkThroughBTreeForRowId(t.db, int64(t.rootPage), sl)
+	if err != nil {
+		return nil, err
+	}
+	for _, cell := range sl.result {
 		if cell != nil {
-			out[i] = Row{
+			out = append(out, Row{
 				cell:  cell,
 				table: t,
-			}
-			return out, nil
+			})
 		}
 	}
-	return nil, errors.New(fmt.Sprintf("No record found %v", rowIds))
+	elapsed := time.Since(start)
+	fmt.Fprintf(os.Stderr, "[dbg] search for rowid Elapsed time: %s\n", elapsed)
+	return out, nil
 }
 
 // Simple Equal comparison bruteforce!
