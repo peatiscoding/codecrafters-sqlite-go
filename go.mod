@@ -6,7 +6,7 @@
 //
 // DON'T EDIT THIS!
 
-module github/com/codecrafters-io/sqlite-starter-go
+module github.com/peatiscoding/codecrafters-sqlite-go
 
 go 1.22
 
