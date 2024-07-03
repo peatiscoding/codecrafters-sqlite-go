@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peatiscoding/codecrafters-sqlite-go/app/btree"
 	"github.com/rqlite/sql"
 )
 
@@ -16,14 +17,14 @@ type _DBLeafPage struct {
 	maxRowId  int64 // 0 means the last page.
 	rowsCount int
 	pageIndex uint32
-	leafPage  *TableBTreePage // may or may not loaded. (lazy)
+	leafPage  *btree.TableBTreePage // may or may not loaded. (lazy)
 }
 
 // Convert this to Generic?
 type _SearchList struct {
 	currentIndex int
 	sortedRowIds []int64
-	result       []*TableBTreeLeafTablePageCell
+	result       []*btree.TableBTreeLeafTablePageCell
 }
 
 func NewSearchList(rowIds []int64) *_SearchList {
@@ -34,7 +35,7 @@ func NewSearchList(rowIds []int64) *_SearchList {
 	return &_SearchList{
 		currentIndex: 0,
 		sortedRowIds: rowIds,
-		result:       make([]*TableBTreeLeafTablePageCell, len(rowIds)),
+		result:       make([]*btree.TableBTreeLeafTablePageCell, len(rowIds)),
 	}
 }
 
@@ -44,7 +45,7 @@ func (s *_SearchList) current() int64 {
 }
 
 // move next, and check if it is already finished.
-func (s *_SearchList) matched(r *TableBTreeLeafTablePageCell) bool {
+func (s *_SearchList) matched(r *btree.TableBTreeLeafTablePageCell) bool {
 	s.result[s.currentIndex] = r
 	s.currentIndex++
 	return s.hasMore()
@@ -58,36 +59,36 @@ func walkThroughBTreeForRowId(db *Db, pageNumber int64, pad *_SearchList) error 
 	pageIndex := pageNumber - 1
 	// out := []TableBTreeLeafTablePageCell{}
 	page := db.readPage(pageIndex)
-	switch page.header.pageType {
-	case LeafTable:
+	switch page.Header.PageType {
+	case btree.LeafTable:
 		// Perform Full Table Scan
-		for cellIndex := 0; cellIndex < len(page.cellOffsets); cellIndex++ {
-			cell, err := page.readTableLeafCell(cellIndex, 0)
+		for cellIndex := 0; cellIndex < len(page.CellOffsets); cellIndex++ {
+			cell, err := page.ReadTableLeafCell(cellIndex, 0)
 			if err != nil {
 				return err
 			}
 			// Eval condition
-			if cell.rowid == pad.current() {
+			if cell.Rowid == pad.current() {
 				if pad.matched(cell) {
 					return nil
 				}
 			}
 		}
-	case InteriorTable:
+	case btree.InteriorTable:
 		// this should recusrively call walk method with nested page. (And append the result)
 		// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d firstCell= %d lastCell= %d\n", pageNumber, firstCell.rowid, lastCell.rowid)
 		// scan through the ranges
-		for j := 0; j < len(page.cellOffsets); j++ {
-			cellOffset := page.cellOffsets[j]
-			cell, err := page.readTableInteriorCell(int(cellOffset))
+		for j := 0; j < len(page.CellOffsets); j++ {
+			cellOffset := page.CellOffsets[j]
+			cell, err := page.ReadTableInteriorCell(int(cellOffset))
 			if err != nil {
 				return err
 			}
-			if pad.current() > cell.rowid {
+			if pad.current() > cell.Rowid {
 				continue
 			}
 			// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %d vs %d (jump=%d)\n", pageNumber, pad.current(), cell.rowid, cell.leftPageNumber)
-			err = walkThroughBTreeForRowId(db, int64(cell.leftPageNumber), pad)
+			err = walkThroughBTreeForRowId(db, int64(cell.LeftPageNumber), pad)
 			if err != nil {
 				return err
 			}
@@ -95,7 +96,7 @@ func walkThroughBTreeForRowId(db *Db, pageNumber int64, pad *_SearchList) error 
 				return nil
 			}
 		}
-		err := walkThroughBTreeForRowId(db, int64(page.header.rightMostPointer), pad)
+		err := walkThroughBTreeForRowId(db, int64(page.Header.RightMostPointer), pad)
 		if err != nil {
 			return err
 		}
@@ -108,26 +109,26 @@ func walkTableLeafPages(db *Db, pageNumber int64, maxRowId int64) []_DBLeafPage 
 	pageIndex := pageNumber - 1
 	leafPage := db.readPage(pageIndex)
 	out := []_DBLeafPage{}
-	switch leafPage.header.pageType {
-	case LeafTable:
+	switch leafPage.Header.PageType {
+	case btree.LeafTable:
 		return append(out, _DBLeafPage{
 			maxRowId:  maxRowId,
 			pageIndex: uint32(pageIndex),
-			rowsCount: int(len(leafPage.cellOffsets)),
+			rowsCount: int(len(leafPage.CellOffsets)),
 			leafPage:  leafPage,
 		})
-	case InteriorTable:
-		cells, err := leafPage.readAllTableInteriorCells()
+	case btree.InteriorTable:
+		cells, err := leafPage.ReadAllTableInteriorCells()
 		if err != nil {
 			log.Fatal("Failed to get associated interior cells")
 		}
 		for _, cell := range cells {
-			out = append(out, walkTableLeafPages(db, int64(cell.leftPageNumber), cell.rowid)...)
+			out = append(out, walkTableLeafPages(db, int64(cell.LeftPageNumber), cell.Rowid)...)
 		}
 		// Handle interior page's header
-		out = append(out, walkTableLeafPages(db, int64(leafPage.header.rightMostPointer), 0)...)
+		out = append(out, walkTableLeafPages(db, int64(leafPage.Header.RightMostPointer), 0)...)
 	default:
-		log.Fatalf("Unsupported page type %#x", leafPage.header.pageType)
+		log.Fatalf("Unsupported page type %#x", leafPage.Header.PageType)
 	}
 	return out
 }
@@ -231,8 +232,8 @@ func (t *DBTable) rows(where map[string]string, eligibleIndex *DBIndex, conditio
 
 	// Using Full Table Scan
 	for _, page := range t.btreePages {
-		for c := 0; c < len(page.leafPage.cellOffsets); c++ {
-			cell, err := page.leafPage.readTableLeafCell(c, t.rowIdAliasColIndex)
+		for c := 0; c < len(page.leafPage.CellOffsets); c++ {
+			cell, err := page.leafPage.ReadTableLeafCell(c, t.rowIdAliasColIndex)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[dbg] read row failed: %s\n", err.Error())
 			}
@@ -291,7 +292,7 @@ func (t *DBTable) SelectRowsByIds(rowIds []int64) ([]Row, error) {
 }
 
 // Simple Equal comparison bruteforce!
-func (t *DBTable) applyFilter(condition *map[string]string, cell *TableBTreeLeafTablePageCell) bool {
+func (t *DBTable) applyFilter(condition *map[string]string, cell *btree.TableBTreeLeafTablePageCell) bool {
 	if len(*condition) == 0 {
 		return true
 	}

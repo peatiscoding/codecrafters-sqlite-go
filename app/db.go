@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/peatiscoding/codecrafters-sqlite-go/app/btree"
 	"github.com/rqlite/sql"
 )
 
@@ -21,7 +22,7 @@ type Db struct {
 	tables    map[string]*DBTable
 	indices   []*DBIndex
 	file      *os.File
-	pageCache map[int64]*TableBTreePage // a chunk of memory to store the page object (contains only headers)
+	pageCache map[int64]*btree.TableBTreePage // a chunk of memory to store the page object (contains only headers)
 }
 
 func NewDb(databaseFilePath string) (*Db, error) {
@@ -51,12 +52,12 @@ func NewDb(databaseFilePath string) (*Db, error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	btreePage, err := parseBTreePage(pageContent, true)
+	btreePage, err := btree.ParseBTreePage(pageContent, true)
 	if err != nil {
 		log.Fatal(err)
 	}
-	schemas := make([]*Schema, len(btreePage.cellOffsets))
-	pageCache := map[int64]*TableBTreePage{}
+	schemas := make([]*Schema, len(btreePage.CellOffsets))
+	pageCache := map[int64]*btree.TableBTreePage{}
 	tables := map[string]*DBTable{}
 	db := Db{
 		pageSize:  pageSize,
@@ -66,8 +67,8 @@ func NewDb(databaseFilePath string) (*Db, error) {
 		pageCache: pageCache,
 	}
 
-	for row := range (*btreePage).cellOffsets {
-		cell, err := btreePage.readTableLeafCell(row, 0)
+	for row := range (*btreePage).CellOffsets {
+		cell, err := btreePage.ReadTableLeafCell(row, 0)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -102,7 +103,7 @@ func NewDb(databaseFilePath string) (*Db, error) {
 }
 
 // @param pageIndex = pageNo - 1
-func (d *Db) readPage(pageIndex int64) *TableBTreePage {
+func (d *Db) readPage(pageIndex int64) *btree.TableBTreePage {
 	cached, ok := d.pageCache[pageIndex]
 	if ok {
 		return cached
@@ -114,7 +115,7 @@ func (d *Db) readPage(pageIndex int64) *TableBTreePage {
 		log.Fatal(err)
 	}
 	// fmt.Fprintf(os.Stderr, "[dbg] reading page (index) %d\n", pageIndex)
-	btreePage, err := parseBTreePage(pageContent, false)
+	btreePage, err := btree.ParseBTreePage(pageContent, false)
 	if err != nil {
 		log.Fatal(err)
 	}

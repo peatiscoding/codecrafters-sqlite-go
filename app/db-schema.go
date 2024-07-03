@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/peatiscoding/codecrafters-sqlite-go/app/btree"
 	"strings"
 )
 
@@ -40,7 +41,7 @@ func typeFromRawString(str string) SchemaType {
 	return Unknown
 }
 
-func NewSchema(cell *TableBTreeLeafTablePageCell) *Schema {
+func NewSchema(cell *btree.TableBTreeLeafTablePageCell) *Schema {
 	typeStr := string(cell.fields[0].data)
 	name := string(cell.fields[1].data)
 	tblName := string(cell.fields[2].data)

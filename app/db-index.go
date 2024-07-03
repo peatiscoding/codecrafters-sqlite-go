@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peatiscoding/codecrafters-sqlite-go/app/btree"
 	"github.com/rqlite/sql"
 )
 
@@ -17,52 +18,52 @@ type DBIndex struct {
 	colIndexOrder []string
 }
 
-func walkThroughIndexBTreeForRowIds(db *Db, pageNumber int64, conditionValueAsPrefix string, out *[]IndexPayload) error {
+func walkThroughIndexBTreeForRowIds(db *Db, pageNumber int64, conditionValueAsPrefix string, out *[]btree.IndexPayload) error {
 	pageIndex := pageNumber - 1
 	page := db.readPage(pageIndex)
-	switch page.header.pageType {
-	case LeafIndex:
+	switch page.Header.PageType {
+	case btree.LeafIndex:
 		// Perform Full Table Scan
-		for cellIndex := 0; cellIndex < len(page.cellOffsets); cellIndex++ {
-			cell, err := page.readIndexLeafCell(cellIndex)
+		for cellIndex := 0; cellIndex < len(page.CellOffsets); cellIndex++ {
+			cell, err := page.ReadIndexLeafCell(cellIndex)
 			if err != nil {
 				return err
 			}
 			// Eval condition
 			// fmt.Fprintf(os.Stderr, "[dbg] Eval on leaf page %d: %s vs %s (result=%d)\n", pageNumber, conditionValueAsPrefix, cell.indexStrain, len(*out))
-			if strings.HasPrefix(cell.indexStrain, conditionValueAsPrefix) {
+			if strings.HasPrefix(cell.IndexStrain, conditionValueAsPrefix) {
 				*out = append(*out, cell)
-			} else if cell.indexStrain > conditionValueAsPrefix {
+			} else if cell.IndexStrain > conditionValueAsPrefix {
 				// nothing to search for anymore.
 				return nil
 			}
 		}
-	case InteriorIndex:
+	case btree.InteriorIndex:
 		// this should recusrively call walk method with nested page. (And append the result)
 		fmt.Fprintf(os.Stderr, "[dbg] IndexScan walk started.. from interior page %d .. %s\n", pageNumber, conditionValueAsPrefix)
 		// scan through the ranges
-		for j := 0; j < len(page.cellOffsets); j++ {
-			cellOffset := page.cellOffsets[j]
-			cell, err := page.readIndexInteriorCell(cellOffset)
+		for j := 0; j < len(page.CellOffsets); j++ {
+			cellOffset := page.CellOffsets[j]
+			cell, err := page.ReadIndexInteriorCell(cellOffset)
 			if err != nil {
 				return err
 			}
-			if conditionValueAsPrefix > cell.maxIndexStrain {
+			if conditionValueAsPrefix > cell.MaxIndexStrain {
 				// nothing to process on this page.
 				continue
 			}
 			// Interior also holds part of index.
-			if strings.HasPrefix(cell.maxIndexStrain, conditionValueAsPrefix) {
+			if strings.HasPrefix(cell.MaxIndexStrain, conditionValueAsPrefix) {
 				*out = append(*out, cell)
 			}
 			// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d %s vs %s (jump=%d)\n", pageNumber, conditionValueAsPrefix, cell.maxIndexStrain, cell.leftPageNumber)
-			err = walkThroughIndexBTreeForRowIds(db, int64(cell.leftPageNumber), conditionValueAsPrefix, out)
+			err = walkThroughIndexBTreeForRowIds(db, int64(cell.LeftPageNumber), conditionValueAsPrefix, out)
 			if err != nil {
 				return err
 			}
 		}
 		// also go through the last wing
-		err := walkThroughIndexBTreeForRowIds(db, int64(page.header.rightMostPointer), conditionValueAsPrefix, out)
+		err := walkThroughIndexBTreeForRowIds(db, int64(page.Header.RightMostPointer), conditionValueAsPrefix, out)
 		if err != nil {
 			return err
 		}
@@ -129,7 +130,7 @@ func (i *DBIndex) Match(condition *map[string]string) string {
 // @param - the value returned from Match()
 func (i *DBIndex) IndexScan(condition *map[string]string, conditionAsPrefix string) []int64 {
 	start := time.Now()
-	result := []IndexPayload{}
+	result := []btree.IndexPayload{}
 	err := walkThroughIndexBTreeForRowIds(i.db, int64(i.rootPage), conditionAsPrefix, &result)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[dbg] IndexScan failed: %s\n", err.Error())
