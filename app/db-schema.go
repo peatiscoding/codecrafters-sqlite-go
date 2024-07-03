@@ -19,7 +19,7 @@ type Schema struct {
 	name       string
 	tblName    string
 	sql        string
-	rootPage   int
+	rootPage   int64
 }
 
 type DBSchema interface {
@@ -45,7 +45,7 @@ func NewSchema(cell *TableBTreeLeafTablePageCell) *Schema {
 	name := string(cell.fields[1].data)
 	tblName := string(cell.fields[2].data)
 	schemaType := typeFromRawString(typeStr)
-	rootPage := int(cell.fields[3].data[0])
+	rootPage := cell.fields[3].Integer()
 
 	// Clean SQL
 	_sql := strings.ReplaceAll(string(cell.fields[4].data), " text", "") // it seems "text" was detected as another column :(

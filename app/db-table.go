@@ -267,8 +267,11 @@ func (t *DBTable) eligibleIndex(condition *map[string]string) (*DBIndex, string)
 // Table
 // TODO: Walk to correct page; Then move to correct rowId
 func (t *DBTable) SelectRowsByIds(rowIds []int64) ([]Row, error) {
-	start := time.Now()
 	out := []Row{}
+	if len(rowIds) == 0 {
+		return out, nil
+	}
+	start := time.Now()
 	sl := NewSearchList(rowIds)
 	err := walkThroughBTreeForRowId(t.db, int64(t.rootPage), sl)
 	if err != nil {

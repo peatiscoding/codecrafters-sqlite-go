@@ -76,7 +76,7 @@ func walkThroughIndexBTreeForRowIds(db *Db, pageNumber int64, conditionValueAsPr
 		}
 	case InteriorIndex:
 		// this should recusrively call walk method with nested page. (And append the result)
-		// fmt.Fprintf(os.Stderr, "[dbg] Reading from interior page %d firstCell= %d lastCell= %d\n", pageNumber, firstCell.rowid, lastCell.rowid)
+		fmt.Fprintf(os.Stderr, "[dbg] IndexScan walk started.. from interior page %d .. %s\n", pageNumber, conditionValueAsPrefix)
 		// scan through the ranges
 		for j := 0; j < len(page.cellOffsets); j++ {
 			cellOffset := page.cellOffsets[j]
