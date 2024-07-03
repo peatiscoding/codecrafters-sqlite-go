@@ -46,13 +46,7 @@ func NewSchema(cell *TableBTreeLeafTablePageCell) *Schema {
 	name := string(cell.fields[1].data)
 	tblName := string(cell.fields[2].data)
 	schemaType := typeFromRawString(typeStr)
-	var rootPage int = 0
-	if I8 == cell.fields[3].serialType {
-		rootPage = int(cell.fields[3].data[0])
-	} else {
-		// Fatal! unexpected format of the Schema object.
-		fmt.Printf("Cannot find root page %v", cell.fields[3])
-	}
+	rootPage := int(cell.fields[3].data[0])
 
 	// Clean SQL
 	_sql := strings.ReplaceAll(string(cell.fields[4].data), " text", "") // it seems "text" was detected as another column :(
