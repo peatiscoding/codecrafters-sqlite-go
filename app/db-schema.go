@@ -42,17 +42,17 @@ func typeFromRawString(str string) SchemaType {
 }
 
 func NewSchema(cell *btree.TableBTreeLeafTablePageCell) *Schema {
-	typeStr := string(cell.fields[0].data)
-	name := string(cell.fields[1].data)
-	tblName := string(cell.fields[2].data)
+	typeStr := string(cell.Fields[0].String())
+	name := string(cell.Fields[1].String())
+	tblName := string(cell.Fields[2].String())
 	schemaType := typeFromRawString(typeStr)
-	rootPage := cell.fields[3].Integer()
+	rootPage := cell.Fields[3].Integer()
 
 	// Clean SQL
-	_sql := strings.ReplaceAll(string(cell.fields[4].data), " text", "") // it seems "text" was detected as another column :(
-	_sql = strings.ReplaceAll(_sql, " integer", "")                      // it seems "integer" was detected as another column :(
-	_sql = strings.ReplaceAll(_sql, "\n", "")                            // it seems was detected as another column :(
-	_sql = strings.ReplaceAll(_sql, "\t", " ")                           // it seems was detected as another column :(
+	_sql := strings.ReplaceAll(cell.Fields[4].String(), " text", "") // it seems "text" was detected as another column :(
+	_sql = strings.ReplaceAll(_sql, " integer", "")                  // it seems "integer" was detected as another column :(
+	_sql = strings.ReplaceAll(_sql, "\n", "")                        // it seems was detected as another column :(
+	_sql = strings.ReplaceAll(_sql, "\t", " ")                       // it seems was detected as another column :(
 
 	return &Schema{
 		schemaType: schemaType,

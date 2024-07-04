@@ -14,5 +14,5 @@ func (r *Row) Column(columnIndex int) string {
 	if columnIndex == r.table.rowIdAliasColIndex {
 		return fmt.Sprintf("%d", r.cell.Rowid)
 	}
-	return r.cell.fields[columnIndex].String()
+	return r.cell.Fields[columnIndex].String()
 }

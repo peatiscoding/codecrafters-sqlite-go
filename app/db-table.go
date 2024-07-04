@@ -298,7 +298,7 @@ func (t *DBTable) applyFilter(condition *map[string]string, cell *btree.TableBTr
 	}
 	for key, value := range *condition {
 		ci := t.colIndexMap[key]
-		str := cell.fields[ci].String()
+		str := cell.Fields[ci].String()
 		if str != value {
 			return false
 		}

@@ -99,8 +99,8 @@ func (p *TableBTreePage) ReadTableLeafCell(cellIndex int, rowidAliasIndex int) (
 
 	return &TableBTreeLeafTablePageCell{
 		payloadSize:  payloadSize,
-		rowid:        rowid,
-		fields:       content,
+		Rowid:        rowid,
+		Fields:       content,
 		overflowPage: 0,
 	}, nil
 }

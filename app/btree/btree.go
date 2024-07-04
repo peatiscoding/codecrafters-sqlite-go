@@ -42,7 +42,7 @@ type TableBTreeLeafPageCellField struct {
 type TableBTreeLeafTablePageCell struct {
 	payloadSize  int64
 	Rowid        int64
-	fields       []TableBTreeLeafPageCellField
+	Fields       []TableBTreeLeafPageCellField
 	overflowPage int32
 }
 
@@ -116,7 +116,6 @@ func (f *TableBTreeLeafPageCellField) Integer() int64 {
 	binary.Read(reader, binary.BigEndian, &i64)
 	return i64
 }
-
 
 func mapSerialType(rawSerialType int64) (BTreeLeafPageCellSerialType, int64, error) {
 	switch rawSerialType {
